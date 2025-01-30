@@ -1,12 +1,11 @@
-//! WIP
+//! The [SNOW-V] stream cipher.
+//!
+//! [SNOW-V]: https://tosc.iacr.org/index.php/ToSC/article/view/8356
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
+//#![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
 
 mod backend;
-mod gcm;
 mod stream;
 
-pub use gcm::*;
 pub use stream::*;
-
-/// The size in bytes of a SNOV-V stream cipher and SNOW-V-GCM
-/// AEAD key.
-pub const KEY_SIZE: usize = 32;

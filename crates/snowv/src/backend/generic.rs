@@ -12,6 +12,10 @@ pub(super) struct State {
 }
 
 impl State {
+    pub fn new(_key: &[u8; 32], _iv: &[u8; 16], _aead: bool) -> Self {
+        todo!()
+    }
+
     pub fn apply_keystream_block(&mut self, data: &mut [u8; 16]) {
         for i in 0..4 {
             let t1 = {
@@ -29,6 +33,12 @@ impl State {
 
         self.update_fsm();
         self.update_lsfr();
+    }
+
+    pub fn apply_keystream_blocks(&mut self, blocks: &mut [[u8; 16]]) {
+        for block in blocks {
+            self.apply_keystream_block(block);
+        }
     }
 
     pub fn write_keystream_block(&mut self, data: &mut [u8; 16]) {

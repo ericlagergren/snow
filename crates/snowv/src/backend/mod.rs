@@ -27,8 +27,21 @@ pub(crate) struct State(Inner);
 impl State {
     /// Creates a new `State`.
     #[inline]
-    pub fn new(_key: &[u8; 32], _iv: &[u8; 16]) -> Self {
-        todo!()
+    pub fn new(key: &[u8; 32], iv: &[u8; 16], aead: bool) -> Self {
+        let inner = if imp::supported() {
+            // SAFETY: `supported` is true, so we can call this
+            // function.
+            let state = unsafe { imp::State::new(key, iv, aead) };
+            Inner {
+                asm: ManuallyDrop::new(state),
+            }
+        } else {
+            let state = generic::State::new(key, iv, aead);
+            Inner {
+                soft: ManuallyDrop::new(state),
+            }
+        };
+        Self(inner)
     }
 
     /// Applies a keystream block.
@@ -42,6 +55,20 @@ impl State {
             // SAFETY: `supported` is true, so `soft` is
             // initialized.
             unsafe { (&mut self.0.soft).apply_keystream_block(block) }
+        }
+    }
+
+    /// Applies keystream blocks.
+    //#[inline]
+    pub fn apply_keystream_blocks(&mut self, blocks: &mut [[u8; 16]]) {
+        if imp::supported() {
+            // SAFETY: `supported` is true, so `asm` is
+            // initialized.
+            unsafe { (&mut self.0.asm).apply_keystream_blocks(blocks) }
+        } else {
+            // SAFETY: `supported` is true, so `soft` is
+            // initialized.
+            unsafe { (&mut self.0.soft).apply_keystream_blocks(blocks) }
         }
     }
 
@@ -69,7 +96,11 @@ impl Clone for State {
                 asm: unsafe { &self.0.asm }.clone(),
             }
         } else {
-            todo!()
+            // SAFETY: `supported` is false, so `soft` is
+            // initialized.
+            Inner {
+                soft: unsafe { &self.0.soft }.clone(),
+            }
         };
         Self(inner)
     }
@@ -88,6 +119,7 @@ impl Drop for State {
         }
     }
 }
+// TODO: zeroize
 
 impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -102,5 +134,3 @@ impl fmt::Debug for State {
         }
     }
 }
-
-// TODO: zeroize

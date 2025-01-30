@@ -1,8 +1,8 @@
 [package]
-name = "snowv"
+name = "snowvgcm"
 version = "0.1.0"
 description = """
-The SNOW-V stream cipher
+The SNOW-V-GCM AEAD construction.
 """
 authors.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 documentation = "https://docs.rs/snowv"
-keywords = [ "snowv", "snow", "snow-v", "snow5" ]
+keywords = [ "snowv", "snow", "snow-v", "snow5", "snow-v-gcm" ]
 categories = [ "cryptography", "no-std", "no-std::no-alloc" ]
 
 [lints]
@@ -20,21 +20,30 @@ workspace = true
 default = []
 
 # Enable `alloc`.
-#
-# Currently unused.
-alloc = []
+alloc = [
+	"cipher/alloc",
+	"snowv/alloc",
+]
 
-# Force the software implementation.
-soft = []
+soft = [
+	"snowv/soft",
+]
 
 # Enable `std`.
 std = [
+	"cipher/std",
+	"ghash/std",
+	"snowv/std",
 	"subtle/std",
 ]
 
 [dependencies]
+snowv = { version = "0.1", path = "../snowv", default-features = false }
+
+cipher = { version = "0.4", default-features = false }
 cfg-if = { workspace = true, default-features = false }
 cpufeatures = { version = "0.2", default-features = false }
+ghash = { version = "0.5", default-features = false }
 subtle = { version = "2.6", default-features = false, features = ["core_hint_black_box"] }
 
 [dev-dependencies]
