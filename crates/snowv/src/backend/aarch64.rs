@@ -8,15 +8,22 @@
 #![allow(clippy::undocumented_unsafe_blocks, reason = "Too many unsafe blocks.")]
 #![allow(non_camel_case_types)]
 
-use core::arch::aarch64::{
-    int16x8_t, uint32x4_t, uint8x16_t, uint8x16x2_t, uint8x16x4_t, vaddq_u32, vaeseq_u8,
-    vaesmcq_u8, vandq_u8, vbicq_s16, vbslq_s16, vbslq_u32, vceqzq_s16, vdupq_n_s16, vdupq_n_u8,
-    veorq_u8, vextq_u8, vld1q_u32, vld1q_u8, vld1q_u8_x2, vld1q_u8_x4, vnegq_s16, vqtbl1q_s8,
-    vqtbl2q_u8, vreinterpretq_s16_u16, vreinterpretq_s16_u8, vreinterpretq_s8_u8,
-    vreinterpretq_u16_s16, vreinterpretq_u16_u8, vreinterpretq_u32_u8, vreinterpretq_u64_u8,
-    vreinterpretq_u8_s16, vreinterpretq_u8_s8, vreinterpretq_u8_u16, vreinterpretq_u8_u32,
-    vreinterpretq_u8_u64, vshlq_n_u16, vshlq_s16, vshrq_n_s16, vshrq_n_u16, vst1q_u8, vst1q_u8_x4,
+use core::{
+    arch::aarch64::{
+        int16x8_t, uint32x4_t, uint8x16_t, uint8x16x2_t, vaddq_u32, vaeseq_u8, vaesmcq_u8,
+        vandq_u8, vbicq_s16, vbslq_s16, vbslq_u32, vceqzq_s16, vdupq_n_u8, veorq_u8, vextq_u8,
+        vld1q_u32, vld1q_u8, vld1q_u8_x2, vnegq_s16, vqtbl1q_s8, vqtbl2q_u8, vreinterpretq_s16_u16,
+        vreinterpretq_s16_u8, vreinterpretq_s8_u8, vreinterpretq_u16_s16, vreinterpretq_u16_u8,
+        vreinterpretq_u32_u8, vreinterpretq_u64_u8, vreinterpretq_u8_s16, vreinterpretq_u8_s8,
+        vreinterpretq_u8_u16, vreinterpretq_u8_u32, vreinterpretq_u8_u64, vshlq_n_u16, vshrq_n_s16,
+        vshrq_n_u16, vst1q_u8,
+    },
+    ptr,
 };
+
+use inout::{InOut, InOutBuf};
+#[cfg(feature = "zeroize")]
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // NB: `aes` implies `neon`.
 cpufeatures::new!(have_aes, "aes");
@@ -74,27 +81,15 @@ impl State {
             lsfr: unsafe { Lsfr::new(k0, k1, iv0, iv1) },
             fsm: unsafe { Fsm::new() },
         };
-        for t in 0..15 {
+        for _ in 0..15 {
             state.lsfr.hi.a = unsafe {
                 let z = state.keystream();
-                {
-                    let mut got = [0; 16];
-                    vst1q_u8(got.as_mut_ptr(), z);
-                    println!("g = {got:x?}");
-                    println!("w = {:x?}", INIT[t].to_le_bytes());
-                    println!();
-                }
                 veorq_u8(state.lsfr.hi.a, z)
             };
         }
         state.fsm.r1 = unsafe { veorq_u8(state.fsm.r1, k0) };
         state.lsfr.hi.a = unsafe {
             let z = state.keystream();
-            let mut got = [0; 16];
-            vst1q_u8(got.as_mut_ptr(), z);
-            println!("g = {got:x?}");
-            println!("w = {:x?}", INIT[15].to_le_bytes());
-            println!();
             veorq_u8(state.lsfr.hi.a, z)
         };
         state.fsm.r1 = unsafe { veorq_u8(state.fsm.r1, k1) };
@@ -107,12 +102,12 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn apply_keystream_block(&mut self, block: &mut [u8; 16]) {
+    pub unsafe fn apply_keystream_block(&mut self, mut block: InOut<'_, '_, [u8; 16]>) {
         debug_assert!(supported());
 
-        let data = unsafe { vld1q_u8(block.as_mut_ptr()) };
+        let data = unsafe { vld1q_u8(ptr::from_ref(block.get_in()).cast()) };
         let z = unsafe { self.keystream() };
-        unsafe { vst1q_u8(block.as_mut_ptr(), veorq_u8(data, z)) }
+        unsafe { vst1q_u8(ptr::from_mut(block.get_out()).cast(), veorq_u8(data, z)) }
     }
 
     /// # Safety
@@ -120,46 +115,61 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn apply_keystream_blocks(&mut self, blocks: &mut [[u8; 16]]) {
+    pub unsafe fn apply_keystream_blocks2(&mut self, blocks: &mut [[u8; 16]]) {
         debug_assert!(supported());
 
-        if true {
-            for block in blocks {
-                unsafe { self.apply_keystream_block(block) }
-            }
-        } else {
-            let mut chunks = blocks.chunks_exact_mut(4);
-            for chunk in chunks.by_ref() {
-                let (lhs, rhs) = chunk.split_at_mut(chunk.len() / 2);
-                unsafe {
-                    let uint8x16x4_t(mut b0, mut b1, mut b2, mut b3) =
-                        vld1q_u8_x4(lhs.as_ptr().cast());
-                    let uint8x16x4_t(mut b4, mut b5, mut b6, mut b7) =
-                        vld1q_u8_x4(rhs.as_ptr().cast());
-
-                    b0 = veorq_u8(b0, self.keystream());
-                    b1 = veorq_u8(b1, self.keystream());
-                    b2 = veorq_u8(b2, self.keystream());
-                    b3 = veorq_u8(b3, self.keystream());
-                    b4 = veorq_u8(b4, self.keystream());
-                    b5 = veorq_u8(b5, self.keystream());
-                    b6 = veorq_u8(b6, self.keystream());
-                    b7 = veorq_u8(b7, self.keystream());
-
-                    vst1q_u8_x4(lhs.as_mut_ptr().cast(), uint8x16x4_t(b0, b1, b2, b3));
-                    vst1q_u8_x4(rhs.as_mut_ptr().cast(), uint8x16x4_t(b4, b5, b6, b7));
-                }
-            }
-            for block in chunks.into_remainder() {
-                unsafe { self.apply_keystream_block(block) }
-            }
+        // TODO: what if no overlap?
+        for block in blocks {
+            let data = unsafe { vld1q_u8(block.as_ptr()) };
+            let z = unsafe { self.keystream() };
+            unsafe { vst1q_u8(block.as_mut_ptr(), veorq_u8(data, z)) }
         }
     }
 
     /// # Safety
     ///
     /// The NEON and AES architectural features must be enabled.
-    //#[inline]
+    #[inline]
+    #[target_feature(enable = "neon,aes")]
+    pub unsafe fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
+        debug_assert!(supported());
+
+        // TODO: what if no overlap?
+        for block in blocks {
+            unsafe { self.apply_keystream_block(block) }
+        }
+
+        // let mut chunks = blocks.chunks_exact_mut(4);
+        // for chunk in chunks.by_ref() {
+        //     let (lhs, rhs) = chunk.split_at_mut(chunk.len() / 2);
+        //     unsafe {
+        //         let uint8x16x4_t(mut b0, mut b1, mut b2, mut b3) =
+        //             vld1q_u8_x4(lhs.as_ptr().cast());
+        //         let uint8x16x4_t(mut b4, mut b5, mut b6, mut b7) =
+        //             vld1q_u8_x4(rhs.as_ptr().cast());
+
+        //         b0 = veorq_u8(b0, self.keystream());
+        //         b1 = veorq_u8(b1, self.keystream());
+        //         b2 = veorq_u8(b2, self.keystream());
+        //         b3 = veorq_u8(b3, self.keystream());
+        //         b4 = veorq_u8(b4, self.keystream());
+        //         b5 = veorq_u8(b5, self.keystream());
+        //         b6 = veorq_u8(b6, self.keystream());
+        //         b7 = veorq_u8(b7, self.keystream());
+
+        //         vst1q_u8_x4(lhs.as_mut_ptr().cast(), uint8x16x4_t(b0, b1, b2, b3));
+        //         vst1q_u8_x4(rhs.as_mut_ptr().cast(), uint8x16x4_t(b4, b5, b6, b7));
+        //     }
+        // }
+        // for block in chunks.into_remainder() {
+        //     unsafe { self.apply_keystream_block(block) }
+        // }
+    }
+
+    /// # Safety
+    ///
+    /// The NEON and AES architectural features must be enabled.
+    #[inline]
     #[target_feature(enable = "neon,aes")]
     pub unsafe fn write_keystream_block(&mut self, block: &mut [u8; 16]) {
         debug_assert!(supported());
@@ -197,25 +207,6 @@ impl State {
         z
     }
 }
-
-const INIT: [u128; 16] = [
-    0x00000000000000000000000000000000,
-    0x63636363636363636363636363636363,
-    0xa5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5,
-    0xeaeaeaeaebebebebebebebebebebebeb,
-    0x55f7f7c2e8e8dd4ae8dd4ae8dd4ae8e8,
-    0xc72a23bfe893733023bc66ec94d2ebb2,
-    0xa7ddcaf3138761026eadf42b54e3efcf,
-    0x6a67623e6f8af9791ecd8183c5868e3a,
-    0x45101e83a2c6ddeb4086382dacfb3b65,
-    0x3cc4df56ecbfc1066dac02c50a683cfe,
-    0x0ccbe1de2e41afda7098d56019200698,
-    0x53cd9869c778caded7db459b6f458b10,
-    0x8d940be59fbdb161c121fc297a3d0a15,
-    0x26132c149eaf12ccd32f3576f6436894,
-    0x0e75be0954181ef58a60a9a9543a05ff,
-    0xdc77a49723eb656ae18f282cf1de1d00,
-];
 
 /// LSFR-A and LSFR-B.
 ///
@@ -346,6 +337,29 @@ impl Lsfr {
     }
 }
 
+impl Drop for Lsfr {
+    #[inline]
+    fn drop(&mut self) {
+        #[cfg(feature = "zeroize")]
+        {
+            self.lo.a.zeroize();
+            self.lo.b.zeroize();
+            self.hi.a.zeroize();
+            self.hi.b.zeroize();
+        }
+        #[cfg(not(feature = "zeroize"))]
+        unsafe {
+            self.lo.a = veorq_u8(self.lo.a, self.lo.a);
+            self.lo.b = veorq_u8(self.lo.b, self.lo.b);
+            self.hi.a = veorq_u8(self.hi.a, self.hi.a);
+            self.hi.b = veorq_u8(self.hi.b, self.hi.b);
+        }
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl ZeroizeOnDrop for Lsfr {}
+
 /// The 384-bit FSM.
 #[derive(Clone, Debug)]
 struct Fsm {
@@ -393,7 +407,7 @@ impl Fsm {
                 vreinterpretq_u32_u8(veorq_u8(self.r3, t2)),
             ));
             let sigma = {
-                const SIGMA: [u8; 16] = [15, 11, 7, 3, 14, 10, 6, 2, 13, 9, 5, 1, 12, 8, 4, 0];
+                const SIGMA: [u8; 16] = [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15];
                 vld1q_u8(SIGMA.as_ptr())
             };
             shuffle8(tmp, sigma)
@@ -402,6 +416,27 @@ impl Fsm {
         self.r3 = r3;
     }
 }
+
+impl Drop for Fsm {
+    #[inline]
+    fn drop(&mut self) {
+        #[cfg(feature = "zeroize")]
+        {
+            self.r1.zeroize();
+            self.r2.zeroize();
+            self.r3.zeroize();
+        }
+        #[cfg(not(feature = "zeroize"))]
+        unsafe {
+            self.r1 = veorq_u8(self.r1, self.r1);
+            self.r2 = veorq_u8(self.r2, self.r2);
+            self.r3 = veorq_u8(self.r3, self.r3);
+        }
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl ZeroizeOnDrop for Fsm {}
 
 /// Performs one AES encrption round with an all-zero round key.
 ///

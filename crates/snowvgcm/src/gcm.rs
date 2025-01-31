@@ -58,12 +58,12 @@ impl SnowVGcm {
         let mut cipher = SnowV::new(&self.key, nonce);
 
         let mut ghash_key = [0; 16];
-        cipher.write_keystream_block(&mut ghash_key);
+        cipher.write_keystream_block(&mut ghash_key).unwrap(); // TODO
 
         let mut mask = [0; 16];
-        cipher.write_keystream_block(&mut mask);
+        cipher.write_keystream_block(&mut mask).unwrap(); // TODO
 
-        cipher.apply_keystream(data);
+        cipher.try_apply_keystream(data.into()).unwrap(); // TODO
 
         let tag = self.compute_tag(&ghash_key, &mask, data, additional_data);
 

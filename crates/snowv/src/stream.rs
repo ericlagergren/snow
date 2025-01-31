@@ -1,4 +1,6 @@
-use core::{fmt, slice};
+use core::{error, fmt};
+
+use inout::{InOut, InOutBuf};
 
 use crate::backend::State;
 
@@ -12,49 +14,107 @@ pub const IV_SIZE: usize = 16;
 pub const BLOCK_SIZE: usize = 16;
 
 /// The maximum number of blocks that can be encrypted.
-pub const MAX_BLOCKS: u64 = u64::MAX;
+pub const MAX_BLOCKS: u64 = 1 << 60;
+
+/// An eror returned by [`SnowV`] when it's reached the end of
+/// its keystream.
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Error;
+
+impl error::Error for Error {}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "end of SNOW-V keystream")
+    }
+}
 
 /// The SNOW-V stream cipher.
 #[derive(Clone)]
-pub struct SnowV(State);
+pub struct SnowV {
+    state: State,
+    /// Number of remaining blocks.
+    blocks: u64,
+}
 
 impl SnowV {
-    /// TODO
+    /// Crates an instance of the SNOW-V stream cipher.
     #[inline]
     pub fn new(key: &[u8; KEY_SIZE], iv: &[u8; IV_SIZE]) -> Self {
-        Self(State::new(key, iv, false))
-    }
-
-    /// TODO
-    #[inline]
-    pub fn new_for_aead(key: &[u8; KEY_SIZE], iv: &[u8; IV_SIZE]) -> Self {
-        Self(State::new(key, iv, true))
-    }
-
-    /// TODO
-    #[inline]
-    pub fn apply_keystream(&mut self, data: &mut [u8]) {
-        let (blocks, tail) = as_blocks_mut(data);
-        self.0.apply_keystream_blocks(blocks);
-        if !tail.is_empty() {
-            let mut tmp = [0; 16];
-            self.0.write_keystream_block(&mut tmp);
-            for (z, x) in tail.iter_mut().zip(tmp.iter()) {
-                *z ^= *x;
-            }
+        Self {
+            state: State::new(key, iv, false),
+            blocks: u64::MAX,
         }
     }
 
-    /// TODO
+    /// Crates an instance of the SNOW-V stream cipher for use
+    /// with SNOW-V-GCM.
     #[inline]
-    pub fn apply_keystream_block(&mut self, block: &mut [u8; BLOCK_SIZE]) {
-        self.0.apply_keystream_block(block)
+    pub fn new_for_aead(key: &[u8; KEY_SIZE], iv: &[u8; IV_SIZE]) -> Self {
+        Self {
+            state: State::new(key, iv, true),
+            blocks: u64::MAX,
+        }
     }
 
-    /// TODO
+    /// XORs each byte in the remainder of the keystream with the
+    /// corresponding byte in `data`.
+    //#[inline]
+    pub fn try_apply_keystream(mut self, data: InOutBuf<'_, '_, u8>) -> Result<(), Error> {
+        let nblocks = u64::try_from(data.len())
+            .map_err(|_| Error)?
+            .div_ceil(BLOCK_SIZE as u64);
+        self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;
+
+        let (blocks, mut tail) = as_blocks_mut(data);
+        self.state.apply_keystream_blocks(blocks);
+        if !tail.is_empty() {
+            let mut block = [0; BLOCK_SIZE];
+            self.state.write_keystream_block(&mut block);
+            tail.xor_in2out(&block[..tail.len()]);
+        }
+        Ok(())
+    }
+
+    /// XORs each byte in the remainder of the keystream with the
+    /// corresponding byte in `data`.
+    //#[inline]
+    pub fn try_apply_keystream2(mut self, data: &mut [u8]) -> Result<(), Error> {
+        let nblocks = u64::try_from(data.len())
+            .map_err(|_| Error)?
+            .div_ceil(BLOCK_SIZE as u64);
+        self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;
+
+        let (blocks, tail) = as_blocks_mut2(data);
+        self.state.apply_keystream_blocks2(blocks);
+        if !tail.is_empty() {
+            let mut block = [0; BLOCK_SIZE];
+            self.state.write_keystream_block(&mut block);
+            for (z, b) in tail.iter_mut().zip(&block) {
+                *z ^= *b;
+            }
+        }
+        Ok(())
+    }
+
+    /// XORs each byte in `data` with the corresponding byte in
+    /// the keystream.
     #[inline]
-    pub fn write_keystream_block(&mut self, block: &mut [u8; BLOCK_SIZE]) {
-        self.0.write_keystream_block(block)
+    pub fn apply_keystream_block(
+        &mut self,
+        block: InOut<'_, '_, [u8; BLOCK_SIZE]>,
+    ) -> Result<(), Error> {
+        self.blocks = self.blocks.checked_sub(1).ok_or(Error)?;
+        self.state.apply_keystream_block(block);
+        Ok(())
+    }
+
+    /// Writes the next keystream block to `block`.
+    #[inline]
+    pub fn write_keystream_block(&mut self, block: &mut [u8; BLOCK_SIZE]) -> Result<(), Error> {
+        self.blocks = self.blocks.checked_sub(1).ok_or(Error)?;
+        self.state.write_keystream_block(block);
+        Ok(())
     }
 }
 
@@ -64,9 +124,35 @@ impl fmt::Debug for SnowV {
     }
 }
 
+#[cfg(feature = "zeroize")]
+impl zeroize::ZeroizeOnDrop for SnowV {}
+
+#[inline(always)]
+fn as_blocks_mut<'inp, 'out>(
+    data: InOutBuf<'inp, 'out, u8>,
+) -> (
+    InOutBuf<'inp, 'out, [u8; BLOCK_SIZE]>,
+    InOutBuf<'inp, 'out, u8>,
+) {
+    let chunks = data.len() / BLOCK_SIZE;
+    let tail_len = data.len() - (chunks * BLOCK_SIZE);
+
+    let (src, dst) = data.into_raw();
+
+    let head = unsafe { InOutBuf::from_raw(src.cast(), dst.cast(), chunks) };
+    let tail = unsafe {
+        InOutBuf::from_raw(
+            src.add(chunks * BLOCK_SIZE),
+            dst.add(chunks * BLOCK_SIZE),
+            tail_len,
+        )
+    };
+    (head, tail)
+}
+
 // See https://doc.rust-lang.org/std/primitive.slice.html#method.as_chunks
 #[inline(always)]
-const fn as_blocks_mut(blocks: &mut [u8]) -> (&mut [[u8; BLOCK_SIZE]], &mut [u8]) {
+const fn as_blocks_mut2(blocks: &mut [u8]) -> (&mut [[u8; BLOCK_SIZE]], &mut [u8]) {
     #[allow(clippy::arithmetic_side_effects)]
     let len_rounded_down = (blocks.len() / BLOCK_SIZE) * BLOCK_SIZE;
     // SAFETY: The rounded-down value is always the same or
@@ -76,7 +162,7 @@ const fn as_blocks_mut(blocks: &mut [u8]) -> (&mut [[u8; BLOCK_SIZE]], &mut [u8]
     let new_len = head.len() / BLOCK_SIZE;
     // SAFETY: We cast a slice of `new_len * N` elements into
     // a slice of `new_len` many `N` elements chunks.
-    let head = unsafe { slice::from_raw_parts_mut(head.as_mut_ptr().cast(), new_len) };
+    let head = unsafe { core::slice::from_raw_parts_mut(head.as_mut_ptr().cast(), new_len) };
     (head, tail)
 }
 
@@ -100,8 +186,8 @@ mod tests {
         ];
         for (i, want) in want.iter().enumerate() {
             let mut got = [0; BLOCK_SIZE];
-            cipher.write_keystream_block(&mut got);
-            let want = want.to_le_bytes();
+            cipher.write_keystream_block(&mut got).unwrap();
+            let want = want.to_be_bytes();
             assert_eq!(got, want, "#{i}");
         }
     }

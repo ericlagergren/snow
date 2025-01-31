@@ -1,4 +1,8 @@
+#![allow(clippy::needless_borrow, reason = "false positive")]
+
 use core::{fmt, mem::ManuallyDrop};
+
+use inout::{InOut, InOutBuf};
 
 mod aarch64;
 mod generic;
@@ -46,7 +50,7 @@ impl State {
 
     /// Applies a keystream block.
     #[inline]
-    pub fn apply_keystream_block(&mut self, block: &mut [u8; 16]) {
+    pub fn apply_keystream_block(&mut self, block: InOut<'_, '_, [u8; 16]>) {
         if imp::supported() {
             // SAFETY: `supported` is true, so `asm` is
             // initialized.
@@ -59,8 +63,8 @@ impl State {
     }
 
     /// Applies keystream blocks.
-    //#[inline]
-    pub fn apply_keystream_blocks(&mut self, blocks: &mut [[u8; 16]]) {
+    #[inline]
+    pub fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
         if imp::supported() {
             // SAFETY: `supported` is true, so `asm` is
             // initialized.
@@ -72,13 +76,27 @@ impl State {
         }
     }
 
+    /// Applies keystream blocks.
+    #[inline]
+    pub fn apply_keystream_blocks2(&mut self, blocks: &mut [[u8; 16]]) {
+        if imp::supported() {
+            // SAFETY: `supported` is true, so `asm` is
+            // initialized.
+            unsafe { (&mut self.0.asm).apply_keystream_blocks2(blocks) }
+        } else {
+            // SAFETY: `supported` is true, so `soft` is
+            // initialized.
+            unsafe { (&mut self.0.soft).apply_keystream_blocks2(blocks) }
+        }
+    }
+
     /// Writes a keystream block.
     #[inline]
     pub fn write_keystream_block(&mut self, block: &mut [u8; 16]) {
         if imp::supported() {
             // SAFETY: `supported` is true, so `asm` is
             // initialized.
-            unsafe { (&mut self.0.asm).write_keystream_block(block) }
+            unsafe { (&mut self.0).asm.write_keystream_block(block) }
         } else {
             // SAFETY: `supported` is true, so `soft` is
             // initialized.
@@ -88,6 +106,7 @@ impl State {
 }
 
 impl Clone for State {
+    #[inline]
     fn clone(&self) -> Self {
         let inner = if imp::supported() {
             Inner {
@@ -96,9 +115,9 @@ impl Clone for State {
                 asm: unsafe { &self.0.asm }.clone(),
             }
         } else {
-            // SAFETY: `supported` is false, so `soft` is
-            // initialized.
             Inner {
+                // SAFETY: `supported` is false, so `soft` is
+                // initialized.
                 soft: unsafe { &self.0.soft }.clone(),
             }
         };
@@ -107,6 +126,7 @@ impl Clone for State {
 }
 
 impl Drop for State {
+    #[inline]
     fn drop(&mut self) {
         if imp::supported() {
             // SAFETY: `supported` is true, so `asm` is
@@ -119,7 +139,9 @@ impl Drop for State {
         }
     }
 }
-// TODO: zeroize
+
+#[cfg(feature = "zeroize")]
+impl zeroize::ZeroizeOnDrop for State {}
 
 impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

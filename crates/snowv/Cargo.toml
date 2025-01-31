@@ -17,27 +17,48 @@ categories = [ "cryptography", "no-std", "no-std::no-alloc" ]
 workspace = true
 
 [features]
-default = []
+default = [
+	"zeroize",
+]
 
 # Enable `alloc`.
 #
 # Currently unused.
-alloc = []
+alloc = [
+	"zeroize/alloc",
+]
 
 # Force the software implementation.
 soft = []
 
 # Enable `std`.
 std = [
+	"inout/std",
 	"subtle/std",
+	"zeroize/std",
+]
+
+# Enable `zeroize` support.
+zeroize = [
+	"dep:zeroize",
 ]
 
 [dependencies]
 cfg-if = { workspace = true, default-features = false }
 cpufeatures = { version = "0.2", default-features = false }
+inout = { workspace = true, default-features = false }
 subtle = { version = "2.6", default-features = false, features = ["core_hint_black_box"] }
+zeroize = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
+snowv = { path = "." }
+
+criterion = { version = "0.5" }
+rand = { version = "0.8", features = ["std_rng"] }
+
+[[bench]]
+name = "lib"
+harness = false
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]

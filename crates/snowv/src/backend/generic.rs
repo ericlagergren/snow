@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+use inout::{InOut, InOutBuf};
+
 #[derive(Clone, Debug)]
 pub(super) struct State {
     a: [u16; 16],
@@ -16,7 +18,7 @@ impl State {
         todo!()
     }
 
-    pub fn apply_keystream_block(&mut self, data: &mut [u8; 16]) {
+    pub fn apply_keystream_block(&mut self, mut block: InOut<'_, '_, [u8; 16]>) {
         for i in 0..4 {
             let t1 = {
                 let hi = self.b[2 * i + 9];
@@ -28,16 +30,22 @@ impl State {
             // data[i * 4 + 1] = (v >> 8) & 0xff;
             // data[i * 4 + 2] = (v >> 16) & 0xff;
             // data[i * 4 + 3] = (v >> 24) & 0xff;
-            data[i * 4..(i + 1) * 4].copy_from_slice(&v.to_le_bytes());
+            block.get_out()[i * 4..(i + 1) * 4].copy_from_slice(&v.to_le_bytes());
         }
 
         self.update_fsm();
         self.update_lsfr();
     }
 
-    pub fn apply_keystream_blocks(&mut self, blocks: &mut [[u8; 16]]) {
+    pub fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
         for block in blocks {
             self.apply_keystream_block(block);
+        }
+    }
+
+    pub fn apply_keystream_blocks2(&mut self, blocks: &mut [[u8; 16]]) {
+        for block in blocks {
+            self.apply_keystream_block(block.into());
         }
     }
 
