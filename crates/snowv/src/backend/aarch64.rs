@@ -282,17 +282,7 @@ impl Lsfr {
         ];
         let uint8x16x4_t(ga, gb, ga_inv, gb_inv) = unsafe { vld1q_u8_x4(G.as_ptr().cast()) };
 
-        // let ga = unsafe { vreinterpretq_u8_p128(0x990f990f990f990f990f990f990f990f) };
-        // let gb = unsafe { vreinterpretq_u8_p128(0xc963c963c963c963c963c963c963c963) };
-        // let ga_inv = unsafe { vreinterpretq_u8_p128(0x33793379337933793379337933793379) };
-        // let gb_inv = unsafe { vreinterpretq_u8_p128(0x1b4f1b4f1b4f1b4f1b4f1b4f1b4f1b4f) };
-
-        // let ga = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(0x990f)) };
-        // let gb = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(0xc963)) };
-        // let ga_inv = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(13177)) };
-        // let gb_inv = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(6991)) };
-
-        // Multiply x*α.
+        // Multiply x*α and x*β.
         let mulx = unsafe {
             let poly = u256::new(ga, gb);
             let x̂ = shl16::<1>(self.lo);
@@ -302,7 +292,7 @@ impl Lsfr {
             bitxor(x̂, bitand(poly, mask))
         };
 
-        // Multiply x*α⁻¹.
+        // Multiply x*α⁻¹ and x*β⁻¹.
         let invx = unsafe {
             let poly = u256::new(ga_inv, gb_inv);
             let x̂ = shr16::<1>(self.hi);
@@ -310,21 +300,34 @@ impl Lsfr {
             bitxor(x̂, sign16(poly, mask))
         };
 
-        let old_hi = self.hi;
-        self.hi = unsafe {
-            bitxor(
-                bitxor(
-                    blend32(
-                        alignr8::<{ 1 * 2 }>(self.hi, self.lo),
-                        alignr8::<{ 3 * 2 }>(self.hi, self.lo),
-                        0xf0,
-                    ),
-                    permute4x64(self.lo, 0x4e),
-                ),
-                bitxor(invx, mulx),
-            )
+        let new_hi = unsafe {
+            // NB: We could use `veor3q_u8` here, but we'd need
+            // to test for SHA3 support. Instead, we just let the
+            // compiler do it for us.
+
+            let mut a = veorq_u8(
+                self.lo.b,
+                // Tap offset 1 of LSFR-A.
+                // a = (a8, a7, a6, ..., a1)
+                vextq_u8(self.lo.a, self.hi.a, 2),
+            );
+            a = veorq_u8(a, mulx.a);
+            a = veorq_u8(a, invx.a);
+
+            let mut b = veorq_u8(
+                self.lo.a,
+                // Tap offset 3 of LSFR-B.
+                // b = (b10, b9, ..., b3)
+                vextq_u8(self.lo.b, self.hi.b, 6),
+            );
+            b = veorq_u8(b, mulx.b);
+            b = veorq_u8(b, invx.b);
+
+            u256::new(a, b)
         };
-        self.lo = old_hi;
+
+        self.lo = self.hi;
+        self.hi = new_hi;
     }
 
     /// Returns the tap `T1 = (b₁₅, b₁₄, ..., b₈)`.
@@ -478,50 +481,6 @@ impl u256 {
     }
 }
 
-/// Packs 32-bit elements in `a` and `b` depending the
-/// corresponding bits in `MASK`.
-///
-/// If bit `i` is 1, element `b[i]` is chosen. Otherwise, element
-/// `a[i]` is chosen.
-///
-/// See [_mm256_blend_epi32].
-///
-/// # Safety
-///
-/// The NEON architectural feature must be enabled.
-///
-/// [_mm256_blend_epi32]: https://www.intel.com/content/www/us/en/docs/cpp-compiler/developer-guide-reference/2021-10/mm-blend-epi32-mm256-blend-epi16-32.html
-#[inline]
-#[target_feature(enable = "neon")]
-unsafe fn blend32(a: u256, b: u256, mask: u8) -> u256 {
-    #[inline]
-    #[target_feature(enable = "neon")]
-    unsafe fn blend(a: uint32x4_t, b: uint32x4_t, mask: u8) -> uint32x4_t {
-        let mask = {
-            let mut tmp = [0u32; 4];
-            for (i, v) in tmp.iter_mut().enumerate() {
-                if (mask & (1 << i)) != 0 {
-                    *v = u32::MAX;
-                }
-            }
-            unsafe { vld1q_u32(tmp.as_ptr()) }
-        };
-        unsafe { vbslq_u32(mask, b, a) }
-    }
-
-    let t0 = unsafe {
-        let a0 = vreinterpretq_u32_u8(a.lo());
-        let b0 = vreinterpretq_u32_u8(b.lo());
-        vreinterpretq_u8_u32(blend(a0, b0, mask & 0xf))
-    };
-    let t1 = unsafe {
-        let b1 = vreinterpretq_u32_u8(b.hi());
-        let a1 = vreinterpretq_u32_u8(a.hi());
-        vreinterpretq_u8_u32(blend(a1, b1, mask >> 4))
-    };
-    u256::new(t0, t1)
-}
-
 /// Concatenates pairs of 128-bit elements in `a` and `b`, shifts
 /// the concatenated pairs right by `N` bytes, and places the low
 /// 128 bits from each pair in a new vector.
@@ -545,52 +504,6 @@ unsafe fn alignr8<const N: i32>(a: u256, b: u256) -> u256 {
     let t0 = unsafe { vextq_u8(b.lo(), a.lo(), N) };
     let t1 = unsafe { vextq_u8(b.hi(), a.hi(), N) };
     u256::new(t0, t1)
-}
-
-/// Shuffles 64-bit elements in `a` using the control mask
-/// `CTRL`.
-///
-/// See [_mm256_permute4x64_epi64].
-///
-/// # Safety
-///
-/// The NEON architectural feature must be enabled.
-///
-/// [_mm256_permute4x64_epi64]: https://www.intel.com/content/www/us/en/docs/cpp-compiler/developer-guide-reference/2021-10/mm256-permute4x64-epi64.html
-#[inline]
-#[target_feature(enable = "neon")]
-unsafe fn permute4x64(a: u256, ctrl: u8) -> u256 {
-    // 2,3,0,1, so swap halves.
-    if ctrl == 0x4e {
-        return u256::new(a.hi(), a.lo());
-    }
-
-    let a0 = unsafe { vreinterpretq_u64_u8(a.lo()) };
-    let a1 = unsafe { vreinterpretq_u64_u8(a.hi()) };
-    let table = unsafe { uint8x16x2_t(vreinterpretq_u8_u64(a0), vreinterpretq_u8_u64(a1)) };
-
-    let mut indices = [0; 4];
-    for (i, v) in indices.iter_mut().enumerate() {
-        *v = ((ctrl >> (i * 2)) & 0x3) as usize;
-    }
-
-    macro_rules! index {
-        ($idx:expr) => {{
-            let mut idx = [0u8; 16];
-            let (lhs, rhs) = idx.split_at_mut(8);
-            for (i, v) in lhs.iter_mut().enumerate() {
-                *v = (indices[$idx] + i) as u8;
-            }
-            for (i, v) in rhs.iter_mut().enumerate() {
-                *v = (indices[$idx + 1] + i) as u8;
-            }
-            vld1q_u8(idx.as_ptr())
-        }};
-    }
-
-    let lo = unsafe { vqtbl2q_u8(table, index!(0)) };
-    let hi = unsafe { vqtbl2q_u8(table, index!(2)) };
-    u256::new(lo, hi)
 }
 
 /// Bitwise XOR.

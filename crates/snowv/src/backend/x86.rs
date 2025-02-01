@@ -176,11 +176,18 @@ impl Lsfr {
         self.hi = unsafe {
             _mm256_xor_si256(
                 _mm256_xor_si256(
+                    // Take the low half of `a` and high half of
+                    // `b`.
                     _mm256_blend_epi32(
+                        // Low 16 bits from `self.hi.a`
+                        // High 112 bits from `self.lo.a`
                         _mm256_alignr_epi8(self.hi, self.lo, 1 * 2),
+                        // Low 48 bits from `self.hi.b`
+                        // High 80 bits from `self.lo.b`
                         _mm256_alignr_epi8(self.hi, self.lo, 3 * 2),
                         0xf0,
                     ),
+                    // Swap vector halves.
                     _mm256_permute4x64_epi64(self.lo, 0x4e),
                 ),
                 _mm256_xor_si256(invx, mulx),
