@@ -10,13 +10,14 @@
 
 use core::{
     arch::aarch64::{
-        int16x8_t, uint32x4_t, uint8x16_t, uint8x16x2_t, vaddq_u32, vaeseq_u8, vaesmcq_u8,
-        vandq_u8, vbicq_s16, vbslq_s16, vbslq_u32, vceqzq_s16, vdupq_n_u8, veorq_u8, vextq_u8,
-        vld1q_u32, vld1q_u8, vld1q_u8_x2, vnegq_s16, vqtbl1q_s8, vqtbl2q_u8, vreinterpretq_s16_u16,
-        vreinterpretq_s16_u8, vreinterpretq_s8_u8, vreinterpretq_u16_s16, vreinterpretq_u16_u8,
-        vreinterpretq_u32_u8, vreinterpretq_u64_u8, vreinterpretq_u8_s16, vreinterpretq_u8_s8,
-        vreinterpretq_u8_u16, vreinterpretq_u8_u32, vreinterpretq_u8_u64, vshlq_n_u16, vshrq_n_s16,
-        vshrq_n_u16, vst1q_u8,
+        int16x8_t, uint32x4_t, uint8x16_t, uint8x16x2_t, uint8x16x4_t, vaddq_u32, vaeseq_u8,
+        vaesmcq_u8, vandq_u8, vbicq_s16, vbslq_s16, vbslq_u32, vceqzq_s16, vdupq_n_u16, vdupq_n_u8,
+        veorq_u8, vextq_u8, vld1q_u32, vld1q_u8, vld1q_u8_x2, vld1q_u8_x4, vnegq_s16, vqtbl1q_s8,
+        vqtbl2q_u8, vreinterpretq_s16_u16, vreinterpretq_s16_u8, vreinterpretq_s8_u8,
+        vreinterpretq_u16_s16, vreinterpretq_u16_u8, vreinterpretq_u32_u8, vreinterpretq_u64_u8,
+        vreinterpretq_u8_p128, vreinterpretq_u8_s16, vreinterpretq_u8_s8, vreinterpretq_u8_u16,
+        vreinterpretq_u8_u32, vreinterpretq_u8_u64, vshlq_n_u16, vshrq_n_s16, vshrq_n_u16,
+        vst1q_u8,
     },
     ptr,
 };
@@ -118,7 +119,6 @@ impl State {
     pub unsafe fn apply_keystream_blocks2(&mut self, blocks: &mut [[u8; 16]]) {
         debug_assert!(supported());
 
-        // TODO: what if no overlap?
         for block in blocks {
             let data = unsafe { vld1q_u8(block.as_ptr()) };
             let z = unsafe { self.keystream() };
@@ -134,7 +134,6 @@ impl State {
     pub unsafe fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
         debug_assert!(supported());
 
-        // TODO: what if no overlap?
         for block in blocks {
             unsafe { self.apply_keystream_block(block) }
         }
@@ -267,22 +266,35 @@ impl Lsfr {
     ///
     /// # Safety
     ///
-    /// The NEON and AES architectural features must be enabled.
+    /// The NEON architectural feature must be enabled.
     #[inline]
     #[target_feature(enable = "neon")]
     unsafe fn update(&mut self) {
+        const G: [u16; 32] = [
+            // gᴬ(α) = 0x990f, less the term α¹⁶.
+            0x990f, 0x990f, 0x990f, 0x990f, 0x990f, 0x990f, 0x990f, 0x990f,
+            // gᴮ(β) = 0xc963
+            0xc963, 0xc963, 0xc963, 0xc963, 0xc963, 0xc963, 0xc963, 0xc963,
+            // gᴬ(α)⁻¹ = -0xcc87 = 13177
+            13177, 13177, 13177, 13177, 13177, 13177, 13177, 13177,
+            // gᴮ(β)⁻¹ = -0xe4b1 = 6991
+            6991, 6991, 6991, 6991, 6991, 6991, 6991, 6991,
+        ];
+        let uint8x16x4_t(ga, gb, ga_inv, gb_inv) = unsafe { vld1q_u8_x4(G.as_ptr().cast()) };
+
+        // let ga = unsafe { vreinterpretq_u8_p128(0x990f990f990f990f990f990f990f990f) };
+        // let gb = unsafe { vreinterpretq_u8_p128(0xc963c963c963c963c963c963c963c963) };
+        // let ga_inv = unsafe { vreinterpretq_u8_p128(0x33793379337933793379337933793379) };
+        // let gb_inv = unsafe { vreinterpretq_u8_p128(0x1b4f1b4f1b4f1b4f1b4f1b4f1b4f1b4f) };
+
+        // let ga = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(0x990f)) };
+        // let gb = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(0xc963)) };
+        // let ga_inv = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(13177)) };
+        // let gb_inv = unsafe { vreinterpretq_u8_u16(vdupq_n_u16(6991)) };
+
         // Multiply x*α.
         let mulx = unsafe {
-            let poly = {
-                const G: [u16; 16] = [
-                    // gᴬ(α) = 0x990f, less the term α¹⁶.
-                    0x990f, 0x990f, 0x990f, 0x990f, 0x990f, 0x990f, 0x990f, 0x990f,
-                    // gᴮ(β) = 0xc963
-                    0xc963, 0xc963, 0xc963, 0xc963, 0xc963, 0xc963, 0xc963, 0xc963,
-                ];
-                let uint8x16x2_t(a, b) = vld1q_u8_x2(G.as_ptr().cast());
-                u256::new(a, b)
-            };
+            let poly = u256::new(ga, gb);
             let x̂ = shl16::<1>(self.lo);
             // If the 15th bit of `x` is set, XOR in the
             // polynomial.
@@ -292,16 +304,7 @@ impl Lsfr {
 
         // Multiply x*α⁻¹.
         let invx = unsafe {
-            let poly = {
-                const G: [i16; 16] = [
-                    // gᴬ(α)⁻¹
-                    13177, 13177, 13177, 13177, 13177, 13177, 13177, 13177,
-                    // gᴮ(β)⁻¹
-                    6991, 6991, 6991, 6991, 6991, 6991, 6991, 6991,
-                ];
-                let uint8x16x2_t(a, b) = vld1q_u8_x2(G.as_ptr().cast());
-                u256::new(a, b)
-            };
+            let poly = u256::new(ga_inv, gb_inv);
             let x̂ = shr16::<1>(self.hi);
             let mask = shl16::<15>(self.hi);
             bitxor(x̂, sign16(poly, mask))
@@ -408,6 +411,7 @@ impl Fsm {
             ));
             let sigma = {
                 const SIGMA: [u8; 16] = [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15];
+                //vreinterpretq_u8_p128(u128::from_le_bytes(SIGMA))
                 vld1q_u8(SIGMA.as_ptr())
             };
             shuffle8(tmp, sigma)
@@ -649,14 +653,6 @@ unsafe fn shr16<const N: i32>(a: u256) -> u256 {
 #[inline]
 #[target_feature(enable = "neon")]
 unsafe fn ashr16<const N: i32>(a: u256) -> u256 {
-    // #[inline]
-    // #[target_feature(enable = "neon")]
-    // unsafe fn ashr(a: int16x8_t, n: i16) -> int16x8_t {
-    //     let n = if n > 15 { 15 } else { n };
-    //     unsafe { vshlq_s16(a, vdupq_n_s16(-n)) }
-    // }
-    // // let lo = unsafe { vreinterpretq_u8_s16(ashr(vreinterpretq_s16_u8(a.lo()), N)) };
-    // // let hi = unsafe { vreinterpretq_u8_s16(ashr(vreinterpretq_s16_u8(a.hi()), N)) };
     let lo = unsafe { vreinterpretq_u8_s16(vshrq_n_s16::<N>(vreinterpretq_s16_u8(a.lo()))) };
     let hi = unsafe { vreinterpretq_u8_s16(vshrq_n_s16::<N>(vreinterpretq_s16_u8(a.hi()))) };
     u256::new(lo, hi)
