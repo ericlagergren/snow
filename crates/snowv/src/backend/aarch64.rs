@@ -11,11 +11,10 @@
 use core::{
     arch::aarch64::{
         uint16x8_t, uint16x8x4_t, uint8x16_t, uint8x16x2_t, vaddq_u32, vaeseq_u8, vaesmcq_u8,
-        vandq_u16, vandq_u8, vdupq_n_u8, veorq_u16, veorq_u8, vextq_u8, vld1q_u16_x4, vld1q_u8,
-        vld1q_u8_x2, vqtbl1q_s8, vreinterpretq_s16_u16, vreinterpretq_s8_u8, vreinterpretq_u16_s16,
-        vreinterpretq_u16_u8, vreinterpretq_u32_u16, vreinterpretq_u32_u8, vreinterpretq_u8_s8,
-        vreinterpretq_u8_u16, vreinterpretq_u8_u32, vshlq_n_u16, vshrq_n_s16, vshrq_n_u16,
-        vst1q_u8,
+        vandq_u16, vdupq_n_u8, veorq_u16, veorq_u8, vextq_u8, vld1q_u16_x4, vld1q_u8, vld1q_u8_x2,
+        vqtbl1q_u8, vreinterpretq_s16_u16, vreinterpretq_u16_s16, vreinterpretq_u16_u8,
+        vreinterpretq_u32_u16, vreinterpretq_u32_u8, vreinterpretq_u8_u16, vreinterpretq_u8_u32,
+        vshlq_n_u16, vshrq_n_s16, vshrq_n_u16, vst1q_u8,
     },
     ptr,
 };
@@ -66,13 +65,13 @@ impl State {
 
         let uint8x16x2_t(k0, k1) = unsafe { vld1q_u8_x2(key.as_ptr()) };
 
-        let iv0 = if aead {
+        let iv0 = unsafe { vld1q_u8(iv.as_ptr()) };
+        let iv1 = if aead {
             const NAMES: &[u8; 16] = b"AlexEkd JingThom";
             unsafe { vld1q_u8(NAMES.as_ptr()) }
         } else {
             unsafe { vdupq_n_u8(0) }
         };
-        let iv1 = unsafe { vld1q_u8(iv.as_ptr()) };
 
         let mut state = State {
             lsfr: unsafe { Lsfr::new(k0, k1, iv0, iv1) },
@@ -102,24 +101,10 @@ impl State {
     pub unsafe fn apply_keystream_block(&mut self, mut block: InOut<'_, '_, [u8; 16]>) {
         debug_assert!(supported());
 
-        let data = unsafe { vld1q_u8(ptr::from_ref(block.get_in()).cast()) };
+        let src = unsafe { vld1q_u8(ptr::from_ref(block.get_in()).cast()) };
         let z = unsafe { self.keystream() };
-        unsafe { vst1q_u8(ptr::from_mut(block.get_out()).cast(), veorq_u8(data, z)) }
-    }
-
-    /// # Safety
-    ///
-    /// The NEON and AES architectural features must be enabled.
-    #[inline]
-    #[target_feature(enable = "neon,aes")]
-    pub unsafe fn apply_keystream_blocks2(&mut self, blocks: &mut [[u8; 16]]) {
-        debug_assert!(supported());
-
-        for block in blocks {
-            let data = unsafe { vld1q_u8(block.as_ptr()) };
-            let z = unsafe { self.keystream() };
-            unsafe { vst1q_u8(block.as_mut_ptr(), veorq_u8(data, z)) }
-        }
+        let dst = ptr::from_mut(block.get_out()).cast();
+        unsafe { vst1q_u8(dst, veorq_u8(src, z)) }
     }
 
     /// # Safety
@@ -133,32 +118,6 @@ impl State {
         for block in blocks {
             unsafe { self.apply_keystream_block(block) }
         }
-
-        // let mut chunks = blocks.chunks_exact_mut(4);
-        // for chunk in chunks.by_ref() {
-        //     let (lhs, rhs) = chunk.split_at_mut(chunk.len() / 2);
-        //     unsafe {
-        //         let uint8x16x4_t(mut b0, mut b1, mut b2, mut b3) =
-        //             vld1q_u8_x4(lhs.as_ptr().cast());
-        //         let uint8x16x4_t(mut b4, mut b5, mut b6, mut b7) =
-        //             vld1q_u8_x4(rhs.as_ptr().cast());
-
-        //         b0 = veorq_u8(b0, self.keystream());
-        //         b1 = veorq_u8(b1, self.keystream());
-        //         b2 = veorq_u8(b2, self.keystream());
-        //         b3 = veorq_u8(b3, self.keystream());
-        //         b4 = veorq_u8(b4, self.keystream());
-        //         b5 = veorq_u8(b5, self.keystream());
-        //         b6 = veorq_u8(b6, self.keystream());
-        //         b7 = veorq_u8(b7, self.keystream());
-
-        //         vst1q_u8_x4(lhs.as_mut_ptr().cast(), uint8x16x4_t(b0, b1, b2, b3));
-        //         vst1q_u8_x4(rhs.as_mut_ptr().cast(), uint8x16x4_t(b4, b5, b6, b7));
-        //     }
-        // }
-        // for block in chunks.into_remainder() {
-        //     unsafe { self.apply_keystream_block(block) }
-        // }
     }
 
     /// # Safety
@@ -252,22 +211,13 @@ impl zeroize::ZeroizeOnDrop for State {}
 /// ```
 #[derive(Clone, Debug)]
 struct Lsfr {
-    /// The low bits of both A and B.
-    ///
-    /// lo = [a₇ ... a₀, b₇ ... b₀]
-    // lo: u256,
-    /// The high bits of both A and B.
-    ///
-    /// hi = [a₁₅ ... a₈, b₁₅ ... b₈]
-    // hi: u256,
-
-    /// (a₇ ... a₀)
+    /// (a₇ a₆, ... a₀)
     a_lo: uint16x8_t,
-    /// (a₁₅ ... a₈)
+    /// (a₁₅, a₁₄, ... a₈)
     a_hi: uint16x8_t,
-    /// (b₇ ... b₀)
+    /// (b₇, b₆, ... b₀)
     b_lo: uint16x8_t,
-    /// (b₁₅ ... b₈)
+    /// (b₁₅, b₁₄, ... b₈)
     b_hi: uint16x8_t,
 }
 
@@ -281,10 +231,10 @@ impl Lsfr {
     #[target_feature(enable = "neon")]
     unsafe fn new(k0: uint8x16_t, k1: uint8x16_t, iv0: uint8x16_t, iv1: uint8x16_t) -> Self {
         Self {
-            a_lo: unsafe { vreinterpretq_u16_u8(k0) },
-            a_hi: unsafe { vreinterpretq_u16_u8(k1) },
-            b_lo: unsafe { vreinterpretq_u16_u8(iv0) },
-            b_hi: unsafe { vreinterpretq_u16_u8(iv1) },
+            a_lo: unsafe { vreinterpretq_u16_u8(iv0) },
+            a_hi: unsafe { vreinterpretq_u16_u8(k0) },
+            b_lo: unsafe { vreinterpretq_u16_u8(iv1) },
+            b_hi: unsafe { vreinterpretq_u16_u8(k1) },
         }
     }
 
@@ -329,8 +279,7 @@ impl Lsfr {
         // for us anyway.
 
         let a_hi = unsafe {
-            // Tap offset 1 of LSFR-A.
-            // a = (a8, a7, a6, ..., a1)
+            // Tap offset 1 (a₈, a₇, ..., a₁).
             let tap1 = vreinterpretq_u16_u8(vextq_u8(
                 vreinterpretq_u8_u16(self.a_lo),
                 vreinterpretq_u8_u16(self.a_hi),
@@ -342,8 +291,7 @@ impl Lsfr {
         };
 
         let b_hi = unsafe {
-            // Tap offset 3 of LSFR-B.
-            // b = (b10, b9, ..., b3)
+            // Tap offset 3 (b₁₀, b₉, ..., b₃).
             let tap3 = vreinterpretq_u16_u8(vextq_u8(
                 vreinterpretq_u8_u16(self.b_lo),
                 vreinterpretq_u8_u16(self.b_hi),
@@ -422,29 +370,11 @@ impl Fsm {
                 vreinterpretq_u32_u8(self.r2),
                 vreinterpretq_u32_u8(veorq_u8(self.r3, t2)),
             ));
-
             let sigma = {
-                const SIGMA: [u8; 16] = [
-                    0,  // 0 -> 0
-                    4,  // 4 -> 1
-                    8,  // 8 -> 2
-                    12, // 12 -> 3
-                    1,  // 1 -> 4
-                    5,  // 5 -> 5
-                    9,  // 9 -> 6
-                    13, // 13 -> 7
-                    2,  // 2 -> 8
-                    6,  // 6 -> 9
-                    10, // 10 -> 10
-                    14, // 14 -> 11
-                    3,  // 3 -> 12
-                    7,  // 7 -> 13
-                    11, // 11 -> 14
-                    15, // 15 -> 15
-                ];
+                const SIGMA: [u8; 16] = [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15];
                 vld1q_u8(SIGMA.as_ptr())
             };
-            shuffle8(tmp, sigma)
+            vqtbl1q_u8(tmp, sigma)
         };
         self.r2 = r2;
         self.r3 = r3;
@@ -493,23 +423,4 @@ unsafe fn inv_mulx(x: uint16x8_t, poly: uint16x8_t) -> uint16x8_t {
         vreinterpretq_u16_s16(vshrq_n_s16(vreinterpretq_s16_u16(t), 15))
     };
     unsafe { veorq_u16(x̂, vandq_u16(poly, mask)) }
-}
-
-/// Shuffles 8-bit elements in `a` according to the masks in the
-/// corresponding 8-bit elements in `b`.
-///
-/// See [_mm_shuffle_epi8].
-///
-/// # Safety
-///
-/// The NEON architectural feature must be enabled.
-///
-/// [_mm_shuffle_epi8]: https://www.intel.com/content/www/us/en/docs/cpp-compiler/developer-guide-reference/2021-10/shuffle-intrinsics.html
-#[inline]
-#[target_feature(enable = "neon")]
-unsafe fn shuffle8(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
-    let table = unsafe { vreinterpretq_s8_u8(a) };
-    let idx = unsafe { vandq_u8(b, vdupq_n_u8(0x8f)) };
-    let res = unsafe { vqtbl1q_s8(table, idx) };
-    unsafe { vreinterpretq_u8_s8(res) }
 }

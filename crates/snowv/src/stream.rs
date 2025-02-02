@@ -76,27 +76,6 @@ impl SnowV {
         Ok(())
     }
 
-    /// XORs each byte in the remainder of the keystream with the
-    /// corresponding byte in `data`.
-    //#[inline]
-    pub fn try_apply_keystream2(mut self, data: &mut [u8]) -> Result<(), Error> {
-        let nblocks = u64::try_from(data.len())
-            .map_err(|_| Error)?
-            .div_ceil(BLOCK_SIZE as u64);
-        self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;
-
-        let (blocks, tail) = as_blocks_mut2(data);
-        self.state.apply_keystream_blocks2(blocks);
-        if !tail.is_empty() {
-            let mut block = [0; BLOCK_SIZE];
-            self.state.write_keystream_block(&mut block);
-            for (z, b) in tail.iter_mut().zip(&block) {
-                *z ^= *b;
-            }
-        }
-        Ok(())
-    }
-
     /// XORs each byte in `data` with the corresponding byte in
     /// the keystream.
     #[inline]
@@ -147,22 +126,6 @@ fn as_blocks_mut<'inp, 'out>(
             tail_len,
         )
     };
-    (head, tail)
-}
-
-// See https://doc.rust-lang.org/std/primitive.slice.html#method.as_chunks
-#[inline(always)]
-const fn as_blocks_mut2(blocks: &mut [u8]) -> (&mut [[u8; BLOCK_SIZE]], &mut [u8]) {
-    #[allow(clippy::arithmetic_side_effects)]
-    let len_rounded_down = (blocks.len() / BLOCK_SIZE) * BLOCK_SIZE;
-    // SAFETY: The rounded-down value is always the same or
-    // smaller than the original length, and thus must be
-    // in-bounds of the slice.
-    let (head, tail) = unsafe { blocks.split_at_mut_unchecked(len_rounded_down) };
-    let new_len = head.len() / BLOCK_SIZE;
-    // SAFETY: We cast a slice of `new_len * N` elements into
-    // a slice of `new_len` many `N` elements chunks.
-    let head = unsafe { core::slice::from_raw_parts_mut(head.as_mut_ptr().cast(), new_len) };
     (head, tail)
 }
 

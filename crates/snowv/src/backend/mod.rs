@@ -35,6 +35,7 @@ impl State {
         let inner = if imp::supported() {
             // SAFETY: `supported` is true, so we can call this
             // function.
+            #[allow(unused_unsafe)]
             let state = unsafe { imp::State::new(key, iv, aead) };
             Inner {
                 asm: ManuallyDrop::new(state),
@@ -73,20 +74,6 @@ impl State {
             // SAFETY: `supported` is true, so `soft` is
             // initialized.
             unsafe { (&mut self.0.soft).apply_keystream_blocks(blocks) }
-        }
-    }
-
-    /// Applies keystream blocks.
-    #[inline]
-    pub fn apply_keystream_blocks2(&mut self, blocks: &mut [[u8; 16]]) {
-        if imp::supported() {
-            // SAFETY: `supported` is true, so `asm` is
-            // initialized.
-            unsafe { (&mut self.0.asm).apply_keystream_blocks2(blocks) }
-        } else {
-            // SAFETY: `supported` is true, so `soft` is
-            // initialized.
-            unsafe { (&mut self.0.soft).apply_keystream_blocks2(blocks) }
         }
     }
 

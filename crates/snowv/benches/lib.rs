@@ -1,6 +1,6 @@
 //! Benchmarks.
 
-use core::hint::black_box;
+//use core::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use snowv::SnowV;
@@ -19,16 +19,6 @@ fn benchmarks(c: &mut Criterion) {
                     let _ = cipher
                         .clone()
                         .try_apply_keystream(data.as_mut_slice().into());
-                });
-            },
-        );
-        g.throughput(Throughput::Bytes(size as u64)).bench_function(
-            BenchmarkId::new("try_apply_keystream2", size),
-            |b| {
-                let mut data = vec![0; size];
-                let cipher = SnowV::new(&[0; 32], &[0; 16]);
-                b.iter(|| {
-                    let _ = cipher.clone().try_apply_keystream2(data.as_mut_slice());
                 });
             },
         );
