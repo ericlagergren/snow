@@ -1,6 +1,6 @@
 //! Software implementation.
 
-// #![deny(unsafe_code)] TODO
+#![deny(unsafe_code)]
 
 mod aes32;
 mod aes64;
@@ -113,7 +113,6 @@ impl State {
     }
 
     #[inline]
-    #[no_mangle]
     pub fn apply_keystream_block(&mut self, block: InOut<'_, '_, [u8; 16]>) {
         let mut z = [0u8; 16];
         self.keystream(&mut z);
@@ -121,7 +120,6 @@ impl State {
     }
 
     #[inline]
-    #[no_mangle]
     pub fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
         for block in blocks {
             self.apply_keystream_block(block);
@@ -143,7 +141,6 @@ impl State {
     /// Output keystream symbol z
     /// ```
     #[inline]
-    #[no_mangle]
     fn keystream(&mut self, z: &mut [u8; 16]) {
         let t1 = self.t1();
         for (((z, &t1), &r1), &r2) in z.chunks_exact_mut(4).zip(&t1).zip(&self.r1).zip(&self.r2) {
@@ -307,6 +304,7 @@ fn aes_ct_enc_round(block1: &[u32; 4], block2: &[u32; 4]) -> ([u32; 4], [u32; 4]
 }
 
 #[inline(always)]
+#[allow(unsafe_code, reason = "Much better performance")]
 fn xor_in2out(block: InOut<'_, '_, [u8; 16]>, z: &[u8; 16]) {
     let (in_ptr, out_ptr) = block.into_raw();
 
