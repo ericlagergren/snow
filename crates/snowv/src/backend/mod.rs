@@ -26,10 +26,11 @@ union Inner {
     soft: ManuallyDrop<generic::State>,
 }
 
+/// SNOW-V state.
 pub(crate) struct State(Inner);
 
 impl State {
-    /// Creates a new `State`.
+    /// Initializes the SNOW-V state.
     #[inline]
     pub fn new(key: &[u8; 32], iv: &[u8; 16], aead: bool) -> Self {
         let inner = if imp::supported() {
@@ -49,7 +50,8 @@ impl State {
         Self(inner)
     }
 
-    /// Applies a keystream block.
+    /// XORs each byte in `block` with the corresponding byte in
+    /// the keystream.
     #[inline]
     pub fn apply_keystream_block(&mut self, block: InOut<'_, '_, [u8; 16]>) {
         if imp::supported() {
@@ -63,7 +65,8 @@ impl State {
         }
     }
 
-    /// Applies keystream blocks.
+    /// XORs each byte in `blocks` with the corresponding byte in
+    /// the keystream.
     #[inline]
     pub fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
         if imp::supported() {
@@ -77,17 +80,17 @@ impl State {
         }
     }
 
-    /// Writes a keystream block.
+    /// Writes the next keystream block to `dst`.
     #[inline]
-    pub fn write_keystream_block(&mut self, block: &mut [u8; 16]) {
+    pub fn write_keystream_block(&mut self, dst: &mut [u8; 16]) {
         if imp::supported() {
             // SAFETY: `supported` is true, so `asm` is
             // initialized.
-            unsafe { (&mut self.0).asm.write_keystream_block(block) }
+            unsafe { (&mut self.0).asm.write_keystream_block(dst) }
         } else {
             // SAFETY: `supported` is true, so `soft` is
             // initialized.
-            unsafe { (&mut self.0.soft).write_keystream_block(block) }
+            unsafe { (&mut self.0.soft).write_keystream_block(dst) }
         }
     }
 }

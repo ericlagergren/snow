@@ -5,7 +5,7 @@
 mod aes32;
 mod aes64;
 
-use core::{mem, ptr};
+use core::ptr;
 
 use inout::{InOut, InOutBuf};
 
@@ -41,13 +41,17 @@ impl State {
     ///     if t == 16 then
     ///         R1 ← R1 ⊕ (k15, k14, ..., k8)
     /// ```
+    #[allow(
+        clippy::unwrap_used,
+        reason = "The compiler can prove lengths of slices."
+    )]
     pub fn new(key: &[u8; 32], iv: &[u8; 16], aead: bool) -> Self {
         let (k0, k1) = key.split_at(key.len() / 2);
 
         let a_lo = {
             let mut tmp = [0u16; 8];
             for (v, iv) in tmp.iter_mut().zip(iv.chunks_exact(2)) {
-                *v = u16::from_le_bytes([iv[0], iv[1]]);
+                *v = u16::from_le_bytes(iv.try_into().unwrap());
             }
             tmp
         };
@@ -55,7 +59,7 @@ impl State {
         let a_hi = {
             let mut tmp = [0u16; 8];
             for (v, k) in tmp.iter_mut().zip(k0.chunks_exact(2)) {
-                *v = u16::from_le_bytes([k[0], k[1]]);
+                *v = u16::from_le_bytes(k.try_into().unwrap());
             }
             tmp
         };
@@ -71,7 +75,7 @@ impl State {
         let b_hi = {
             let mut tmp = [0u16; 8];
             for (v, k) in tmp.iter_mut().zip(k1.chunks_exact(2)) {
-                *v = u16::from_le_bytes([k[0], k[1]]);
+                *v = u16::from_le_bytes(k.try_into().unwrap());
             }
             tmp
         };
@@ -234,11 +238,14 @@ impl State {
         // `[u8; 16]`. Refs to those types have different
         // alignments, but `u8` has less strict alignment than
         // `u16`.
-        let a_lo = unsafe { mem::transmute::<&[u16; 8], &[u8; 16]>(&self.b_hi) };
+        let b_hi = unsafe { &*(&self.b_hi as *const [u16; 8]).cast::<[u8; 16]>() };
 
         let mut t = [0u32; 4];
-        for (v, b) in t.iter_mut().zip(a_lo.chunks_exact(4)) {
-            *v = u32::from_le_bytes(b.try_into().unwrap());
+        for (v, b) in t.iter_mut().zip(b_hi.chunks_exact(4)) {
+            *v = u32::from_le_bytes(
+                #[allow(clippy::unwrap_used, reason = "The compiler can prove length of `b`")]
+                b.try_into().unwrap(),
+            );
         }
         t
     }
@@ -250,11 +257,14 @@ impl State {
         // `[u8; 16]`. Refs to those types have different
         // alignments, but `u8` has less strict alignment than
         // `u16`.
-        let a_lo = unsafe { mem::transmute::<&[u16; 8], &[u8; 16]>(&self.a_lo) };
+        let a_lo = unsafe { &*(&self.a_lo as *const [u16; 8]).cast::<[u8; 16]>() };
 
         let mut t = [0u32; 4];
         for (v, a) in t.iter_mut().zip(a_lo.chunks_exact(4)) {
-            *v = u32::from_le_bytes(a.try_into().unwrap());
+            *v = u32::from_le_bytes(
+                #[allow(clippy::unwrap_used, reason = "The compiler can prove length of `a`")]
+                a.try_into().unwrap(),
+            );
         }
         t
     }
@@ -279,15 +289,25 @@ const fn inv_mulx(x: u16, d: u16) -> u16 {
 }
 
 #[inline(always)]
+#[allow(
+    clippy::indexing_slicing,
+    reason = "The compiler can prove `state[sigma >> 2]` is in bounds."
+)]
 fn permute_sigma(state: &mut [u32; 4]) {
     const SIGMA: [u8; 16] = [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15];
 
     let mut tmp = [0; 16];
-    for (i, t) in tmp.iter_mut().enumerate() {
-        *t = (state[(SIGMA[i] >> 2) as usize] >> ((SIGMA[i] & 3) << 3)) as u8;
+    for (t, &sigma) in tmp.iter_mut().zip(&SIGMA) {
+        // The max value in `sigma` is 15, and `15>>2 = 3`, so
+        // indexing `state` cannot panic.
+        let s = state[(sigma >> 2) as usize];
+        *t = (s >> ((sigma & 3) << 3)) as u8;
     }
     for (dst, src) in state.iter_mut().zip(tmp.chunks_exact_mut(4)) {
-        *dst = u32::from_le_bytes(src.try_into().unwrap());
+        *dst = u32::from_le_bytes(
+            #[allow(clippy::unwrap_used, reason = "The compiler can prove length of `src`")]
+            src.try_into().unwrap(),
+        );
     }
 }
 

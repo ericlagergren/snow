@@ -38,7 +38,7 @@ pub struct SnowV {
 }
 
 impl SnowV {
-    /// Crates an instance of the SNOW-V stream cipher.
+    /// Creates an instance of the SNOW-V stream cipher.
     #[inline]
     pub fn new(key: &[u8; KEY_SIZE], iv: &[u8; IV_SIZE]) -> Self {
         Self {
@@ -47,7 +47,7 @@ impl SnowV {
         }
     }
 
-    /// Crates an instance of the SNOW-V stream cipher for use
+    /// Creates an instance of the SNOW-V stream cipher for use
     /// with SNOW-V-GCM.
     #[inline]
     pub fn new_for_aead(key: &[u8; KEY_SIZE], iv: &[u8; IV_SIZE]) -> Self {
@@ -59,7 +59,7 @@ impl SnowV {
 
     /// XORs each byte in the remainder of the keystream with the
     /// corresponding byte in `data`.
-    //#[inline]
+    #[inline]
     pub fn try_apply_keystream(mut self, data: InOutBuf<'_, '_, u8>) -> Result<(), Error> {
         let nblocks = u64::try_from(data.len())
             .map_err(|_| Error)?
@@ -71,6 +71,10 @@ impl SnowV {
         if !tail.is_empty() {
             let mut block = [0; BLOCK_SIZE];
             self.state.write_keystream_block(&mut block);
+            #[allow(
+                clippy::indexing_slicing,
+                reason = "The compiler can prove the lengths of `block` and `tail`."
+            )]
             tail.xor_in2out(&block[..tail.len()]);
         }
         Ok(())
@@ -114,18 +118,36 @@ fn as_blocks_mut<'inp, 'out>(
     InOutBuf<'inp, 'out, u8>,
 ) {
     let chunks = data.len() / BLOCK_SIZE;
-    let tail_len = data.len() - (chunks * BLOCK_SIZE);
+    // The size in bytes of `head`.
+    //
+    // Cannot overflow, but avoids a lint.
+    let head_len = chunks.wrapping_mul(BLOCK_SIZE);
+    // The size in bytes of `tail`.
+    //
+    // Cannot overflow, but avoids a lint.
+    let tail_len = data.len().wrapping_sub(head_len);
 
     let (src, dst) = data.into_raw();
 
+    // SAFETY:
+    // - `in_ptr` is initialized and valid to read up to `chunks`
+    //    blocks since `chunks` is the length of `data` divided
+    //    by the size of a block.
+    // - Ditto for writes to `out_ptr`.
+    // - All the other safety conditions hold because both
+    //   pointers come from the same `InOutBuf`.
     let head = unsafe { InOutBuf::from_raw(src.cast(), dst.cast(), chunks) };
-    let tail = unsafe {
-        InOutBuf::from_raw(
-            src.add(chunks * BLOCK_SIZE),
-            dst.add(chunks * BLOCK_SIZE),
-            tail_len,
-        )
-    };
+
+    // SAFETY:
+    // - `in_ptr` is initialized and valid to read up to
+    //    `tail_len` bytes because `tail_len` is the remainder of
+    //    length of `data` divided by the size of a block.
+    // - Ditto for writes to `out_ptr`.
+    // - All the other safety conditions hold because both
+    //   pointers come from the same `InOutBuf`.
+    // - The call to `add` is safe because of the aforementioned
+    //   safety conditions.
+    let tail = unsafe { InOutBuf::from_raw(src.add(head_len), dst.add(head_len), tail_len) };
     (head, tail)
 }
 
