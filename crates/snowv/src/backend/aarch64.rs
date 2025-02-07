@@ -8,15 +8,12 @@
 #![allow(clippy::undocumented_unsafe_blocks, reason = "Too many unsafe blocks.")]
 #![allow(non_camel_case_types)]
 
-use core::{
-    arch::aarch64::{
-        uint16x8_t, uint16x8x4_t, uint8x16_t, uint8x16x2_t, vaddq_u32, vaeseq_u8, vaesmcq_u8,
-        vandq_u16, vdupq_n_u8, veorq_u16, veorq_u8, vextq_u8, vld1q_u16_x4, vld1q_u8, vld1q_u8_x2,
-        vqtbl1q_u8, vreinterpretq_s16_u16, vreinterpretq_u16_s16, vreinterpretq_u16_u8,
-        vreinterpretq_u32_u16, vreinterpretq_u32_u8, vreinterpretq_u8_u16, vreinterpretq_u8_u32,
-        vshlq_n_u16, vshrq_n_s16, vshrq_n_u16, vst1q_u8,
-    },
-    ptr,
+use core::arch::aarch64::{
+    uint16x8_t, uint16x8x4_t, uint8x16_t, uint8x16x2_t, vaddq_u32, vaeseq_u8, vaesmcq_u8,
+    vandq_u16, vdupq_n_u8, veorq_u16, veorq_u8, vextq_u8, vld1q_u16_x4, vld1q_u8, vld1q_u8_x2,
+    vqtbl1q_u8, vreinterpretq_s16_u16, vreinterpretq_u16_s16, vreinterpretq_u16_u8,
+    vreinterpretq_u32_u16, vreinterpretq_u32_u8, vreinterpretq_u8_u16, vreinterpretq_u8_u32,
+    vshlq_n_u16, vshrq_n_s16, vshrq_n_u16, vst1q_u8,
 };
 
 use inout::{InOut, InOutBuf};
@@ -98,13 +95,13 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn apply_keystream_block(&mut self, mut block: InOut<'_, '_, [u8; 16]>) {
+    pub unsafe fn apply_keystream_block(&mut self, block: InOut<'_, '_, [u8; 16]>) {
         debug_assert!(supported());
 
-        let src = unsafe { vld1q_u8(ptr::from_ref(block.get_in()).cast()) };
+        let (in_ptr, out_ptr) = block.into_raw();
+        let src = unsafe { vld1q_u8(in_ptr.cast()) };
         let z = unsafe { self.keystream() };
-        let dst = ptr::from_mut(block.get_out()).cast();
-        unsafe { vst1q_u8(dst, veorq_u8(src, z)) }
+        unsafe { vst1q_u8(out_ptr.cast(), veorq_u8(src, z)) }
     }
 
     /// # Safety
@@ -349,8 +346,8 @@ impl Fsm {
     /// ```text
     /// T2 ← (a₇, a₆, ..., a₀)
     /// tmp ← R2 +₃₂ (R3 ⊕ T2)
-    /// R3 ←  AESᴿ(R2)
-    /// R2 ←  AESᴿ(R1)
+    /// R3 ← AESᴿ(R2)
+    /// R2 ← AESᴿ(R1)
     /// R1 ← σ(tmp)
     /// ```
     ///

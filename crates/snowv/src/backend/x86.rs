@@ -52,7 +52,7 @@ impl State {
             };
         }
 
-        for t in 0..15 {
+        for _ in 0..15 {
             state.lsfr.hi = unsafe {
                 let z = state.keystream();
                 _mm256_xor_si256(state.lsfr.hi, _mm256_zextsi128_si256(z))
@@ -74,12 +74,13 @@ impl State {
     /// The AES and AVX2 architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "avx2,aes")]
-    pub unsafe fn apply_keystream_block(&mut self, mut block: InOut<'_, [u8; 16]>) {
+    pub unsafe fn apply_keystream_block(&mut self, block: InOut<'_, '_, [u8; 16]>) {
         debug_assert!(supported());
 
-        let data = unsafe { _mm_lddqu_si128(block.get_in().as_ptr().cast()) };
+        let (in_ptr, out_ptr) = block.into_raw();
+        let data = unsafe { _mm_lddqu_si128(in_ptr.cast()) };
         let z = unsafe { self.keystream() };
-        unsafe { _mm_storeu_si128(block.get_out().as_mut_ptr().cast(), _mm_xor_si128(data, z)) }
+        unsafe { _mm_storeu_si128(out_ptr.cast(), _mm_xor_si128(data, z)) }
     }
 
     /// # Safety
@@ -87,7 +88,7 @@ impl State {
     /// The AES and AVX2 architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "avx2,aes")]
-    pub unsafe fn apply_keystream_blocks(&mut self, mut blocks: InOutBuf<'_, '_, [u8; 16]>) {
+    pub unsafe fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
         debug_assert!(supported());
 
         for block in blocks {
@@ -176,18 +177,11 @@ impl Lsfr {
         self.hi = unsafe {
             _mm256_xor_si256(
                 _mm256_xor_si256(
-                    // Take the low half of `a` and high half of
-                    // `b`.
                     _mm256_blend_epi32(
-                        // Low 16 bits from `self.hi.a`
-                        // High 112 bits from `self.lo.a`
                         _mm256_alignr_epi8(self.hi, self.lo, 1 * 2),
-                        // Low 48 bits from `self.hi.b`
-                        // High 80 bits from `self.lo.b`
                         _mm256_alignr_epi8(self.hi, self.lo, 3 * 2),
                         0xf0,
                     ),
-                    // Swap vector halves.
                     _mm256_permute4x64_epi64(self.lo, 0x4e),
                 ),
                 _mm256_xor_si256(invx, mulx),

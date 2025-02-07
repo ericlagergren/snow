@@ -40,16 +40,15 @@ std = [
 # Enable `zeroize` support.
 zeroize = [
 	"dep:zeroize",
-
-	"aes/zeroize",
 ]
 
 [dependencies]
-aes = { version = "0.8", default-features = false, features = ["hazmat"] }
 cfg-if = { workspace = true, default-features = false }
-cpufeatures = { version = "0.2", default-features = false }
 inout = { workspace = true, default-features = false }
 zeroize = { workspace = true, default-features = false, optional = true }
+
+[target.'cfg(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "x86"))'.dependencies]
+cpufeatures = { version = "0.2", default-features = false }
 
 [dev-dependencies]
 snowv = { path = "." }

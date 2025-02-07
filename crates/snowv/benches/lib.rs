@@ -1,5 +1,7 @@
 //! Benchmarks.
 
+#![allow(missing_docs)]
+
 //use core::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
