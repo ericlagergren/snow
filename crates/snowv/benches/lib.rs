@@ -2,7 +2,7 @@
 
 #![allow(missing_docs)]
 
-//use core::hint::black_box;
+use core::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use snowv::SnowV;
@@ -11,17 +11,24 @@ const SIZES: &[usize] = &[64, 256, 1024, 2028, 4096, 8192, 16384];
 
 fn benchmarks(c: &mut Criterion) {
     let mut g = c.benchmark_group("basic");
+
+    g.throughput(Throughput::Elements(1))
+        .bench_function("new", |b| {
+            b.iter(|| {
+                black_box(SnowV::new(black_box(&[0; 32]), black_box(&[0; 16])));
+            });
+        });
+
     for &size in SIZES {
         g.throughput(Throughput::Bytes(size as u64)).bench_function(
-            BenchmarkId::new("try_apply_keystream", size),
+            BenchmarkId::new("apply_keystream", size),
             |b| {
                 let mut data = vec![0; size];
                 let cipher = SnowV::new(&[0; 32], &[0; 16]);
                 b.iter(|| {
-                    let _ = cipher
-                        .clone()
-                        .try_apply_keystream(data.as_mut_slice().into());
+                    let _ = cipher.clone().apply_keystream(data.as_mut_slice().into());
                 });
+                black_box(&data);
             },
         );
     }

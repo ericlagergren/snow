@@ -19,7 +19,7 @@ cfg_if::cfg_if! {
 }
 
 pub fn supported() -> bool {
-    true || have_asm::get()
+    have_asm::get()
 }
 
 #[derive(Clone, Debug)]
@@ -105,6 +105,19 @@ impl State {
         debug_assert!(supported());
 
         unsafe { _mm_storeu_si128(block.as_mut_ptr().cast(), self.keystream()) }
+    }
+
+    /// # Safety
+    ///
+    /// The AES and AVX2 architectural features must be enabled.
+    #[inline]
+    #[target_feature(enable = "avx2,aes")]
+    pub unsafe fn write_keystream_blocks(&mut self, block: &mut [[u8; 16]]) {
+        debug_assert!(supported());
+
+        for block in block {
+            unsafe { self.write_keystream_block(block) }
+        }
     }
 
     /// # Safety

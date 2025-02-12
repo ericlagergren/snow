@@ -60,7 +60,7 @@ impl SnowV {
     /// XORs each byte in the remainder of the keystream with the
     /// corresponding byte in `data`.
     #[inline]
-    pub fn try_apply_keystream(mut self, data: InOutBuf<'_, '_, u8>) -> Result<(), Error> {
+    pub fn apply_keystream(mut self, data: InOutBuf<'_, '_, u8>) -> Result<(), Error> {
         let nblocks = u64::try_from(data.len())
             .map_err(|_| Error)?
             .div_ceil(BLOCK_SIZE as u64);
@@ -80,7 +80,7 @@ impl SnowV {
         Ok(())
     }
 
-    /// XORs each byte in `data` with the corresponding byte in
+    /// XORs each byte in `block` with the corresponding byte in
     /// the keystream.
     #[inline]
     pub fn apply_keystream_block(
@@ -92,11 +92,33 @@ impl SnowV {
         Ok(())
     }
 
+    /// XORs each byte in `blocks` with the corresponding byte in
+    /// the keystream.
+    #[inline]
+    pub fn apply_keystream_blocks(
+        &mut self,
+        blocks: InOutBuf<'_, '_, [u8; BLOCK_SIZE]>,
+    ) -> Result<(), Error> {
+        let nblocks = u64::try_from(blocks.len()).map_err(|_| Error)?;
+        self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;
+        self.state.apply_keystream_blocks(blocks);
+        Ok(())
+    }
+
     /// Writes the next keystream block to `block`.
     #[inline]
     pub fn write_keystream_block(&mut self, block: &mut [u8; BLOCK_SIZE]) -> Result<(), Error> {
         self.blocks = self.blocks.checked_sub(1).ok_or(Error)?;
         self.state.write_keystream_block(block);
+        Ok(())
+    }
+
+    /// Writes the next keystream blocks to `blocks`.
+    #[inline]
+    pub fn write_keystream_blocks(&mut self, blocks: &mut [[u8; BLOCK_SIZE]]) -> Result<(), Error> {
+        let nblocks = u64::try_from(blocks.len()).map_err(|_| Error)?;
+        self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;
+        self.state.write_keystream_blocks(blocks);
         Ok(())
     }
 }

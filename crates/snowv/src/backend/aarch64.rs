@@ -128,6 +128,19 @@ impl State {
         unsafe { vst1q_u8(block.as_mut_ptr(), self.keystream()) }
     }
 
+    /// # Safety
+    ///
+    /// The NEON and AES architectural features must be enabled.
+    #[inline]
+    #[target_feature(enable = "neon,aes")]
+    pub unsafe fn write_keystream_blocks(&mut self, block: &mut [[u8; 16]]) {
+        debug_assert!(supported());
+
+        for block in block {
+            unsafe { self.write_keystream_block(block) }
+        }
+    }
+
     /// Returns the next keystream block.
     ///
     /// ```text
@@ -171,10 +184,10 @@ impl Drop for State {
         // SAFETY: These require the NEON architectural feature,
         // which we have.
         unsafe {
-            self.lsfr.a_lo = veorq_u8(self.lsfr.a_lo, self.lsfr.a_lo);
-            self.lsfr.a_hi = veorq_u8(self.lsfr.a_hi, self.lsfr.a_hi);
-            self.lsfr.b_lo = veorq_u8(self.lsfr.b_lo, self.lsfr.b_lo);
-            self.lsfr.b_hi = veorq_u8(self.lsfr.b_hi, self.lsfr.b_hi);
+            self.lsfr.a_lo = veorq_u16(self.lsfr.a_lo, self.lsfr.a_lo);
+            self.lsfr.a_hi = veorq_u16(self.lsfr.a_hi, self.lsfr.a_hi);
+            self.lsfr.b_lo = veorq_u16(self.lsfr.b_lo, self.lsfr.b_lo);
+            self.lsfr.b_hi = veorq_u16(self.lsfr.b_hi, self.lsfr.b_hi);
 
             self.fsm.r1 = veorq_u8(self.fsm.r1, self.fsm.r1);
             self.fsm.r2 = veorq_u8(self.fsm.r2, self.fsm.r2);

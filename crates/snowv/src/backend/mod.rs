@@ -93,6 +93,20 @@ impl State {
             unsafe { (&mut self.0.soft).write_keystream_block(dst) }
         }
     }
+
+    /// Writes the next keystream blocks to `dst`.
+    #[inline]
+    pub fn write_keystream_blocks(&mut self, dst: &mut [[u8; 16]]) {
+        if imp::supported() {
+            // SAFETY: `supported` is true, so `asm` is
+            // initialized.
+            unsafe { (&mut self.0).asm.write_keystream_blocks(dst) }
+        } else {
+            // SAFETY: `supported` is true, so `soft` is
+            // initialized.
+            unsafe { (&mut self.0.soft).write_keystream_blocks(dst) }
+        }
+    }
 }
 
 impl Clone for State {

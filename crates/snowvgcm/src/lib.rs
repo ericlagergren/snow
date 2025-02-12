@@ -6,5 +6,6 @@
 #![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
 
 mod gcm;
+pub mod rust_crypto;
 
 pub use gcm::*;

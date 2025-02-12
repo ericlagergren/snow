@@ -45,6 +45,7 @@ impl State {
         clippy::unwrap_used,
         reason = "The compiler can prove lengths of slices."
     )]
+    #[inline]
     pub fn new(key: &[u8; 32], iv: &[u8; 16], aead: bool) -> Self {
         let (k0, k1) = key.split_at(key.len() / 2);
 
@@ -133,6 +134,13 @@ impl State {
     #[inline]
     pub fn write_keystream_block(&mut self, z: &mut [u8; 16]) {
         self.keystream(z);
+    }
+
+    #[inline]
+    pub fn write_keystream_blocks(&mut self, block: &mut [[u8; 16]]) {
+        for block in block {
+            self.write_keystream_block(block)
+        }
     }
 
     /// Returns the next keystream block.

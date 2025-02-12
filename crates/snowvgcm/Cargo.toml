@@ -21,30 +21,42 @@ default = []
 
 # Enable `alloc`.
 alloc = [
-	"cipher/alloc",
 	"snowv/alloc",
 ]
 
+# Enable RustCrypto bindings.
+rust-crypto = [
+	"dep:aead",
+]
+
 soft = [
+	"polyhash/soft",
 	"snowv/soft",
 ]
 
 # Enable `std`.
 std = [
-	"cipher/std",
-	"ghash/std",
 	"snowv/std",
 	"subtle/std",
+	"polyhash/std",
+]
+
+zeroize = [
+	"dep:zeroize",
+
+	"polyhash/zeroize",
+	"snowv/zeroize",
 ]
 
 [dependencies]
 snowv = { version = "0.1", path = "../snowv", default-features = false }
 
-cipher = { version = "0.4", default-features = false }
+aead = { version = "0.5", default-features = false, optional = true }
 cfg-if = { workspace = true, default-features = false }
-cpufeatures = { version = "0.2", default-features = false }
-ghash = { version = "0.5", default-features = false }
+inout = { workspace = true, default-features = false }
+polyhash = { version = "0.3", default-features = false }
 subtle = { version = "2.6", default-features = false, features = ["core_hint_black_box"] }
+zeroize = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
 
