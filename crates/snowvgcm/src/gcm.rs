@@ -11,7 +11,8 @@ cfg_if::cfg_if! {
     } else {
         struct Zeroizing<T>(T);
         impl<T> Zeroizing<T> {
-            #[inline]
+            #[inline(always)]
+            #[allow(clippy::new_ret_no_self)]
             fn new(t: T) -> T {
                 t
             }

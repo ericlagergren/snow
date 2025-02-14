@@ -9,7 +9,7 @@ default-members = ["crates/*"]
 authors = ["Eric Lagergren"]
 edition = "2021"
 license = "BSD-3-Clause"
-repository = "https://github.com/ericlagergren/gcm-sst"
+repository = "https://github.com/ericlagergren/snow"
 
 [workspace.lints.rust]
 missing_docs = "warn"

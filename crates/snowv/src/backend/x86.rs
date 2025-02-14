@@ -5,10 +5,7 @@
     any(target_arch = "x86", target_arch = "x86_64"),
     target_feature = "avx2",
 ))]
-
-cpufeatures::new!(have_asm, "aes", "avx2");
-
-use inout::{InOut, InOutBuf};
+#![allow(clippy::undocumented_unsafe_blocks, reason = "Too many unsafe blocks.")]
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "x86_64")] {
@@ -18,8 +15,28 @@ cfg_if::cfg_if! {
     }
 }
 
-pub fn supported() -> bool {
-    have_asm::get()
+use inout::{InOut, InOutBuf};
+
+use crate::Block;
+
+cpufeatures::new!(have_asm, "aes", "avx2");
+
+#[derive(Copy, Clone, Debug)]
+pub(super) struct Token {
+    token: have_pclmulqdq::InitToken,
+}
+
+impl Token {
+    #[inline]
+    pub fn new() -> (Self, bool) {
+        let (token, supported) = have_pclmulqdq::init_get();
+        (Self { token }, supported)
+    }
+
+    #[inline]
+    pub fn supported(&self) -> bool {
+        self.token.get()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -35,8 +52,6 @@ impl State {
     #[inline]
     #[target_feature(enable = "avx2,aes")]
     pub unsafe fn new(key: &[u8; 32], iv: &[u8; 16], aead: bool) -> Self {
-        debug_assert!(supported());
-
         let key = unsafe { _mm256_loadu_si256(key.as_ptr().cast()) };
         let iv = unsafe { _mm_loadu_si128(iv.as_ptr().cast()) };
 
@@ -74,9 +89,7 @@ impl State {
     /// The AES and AVX2 architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "avx2,aes")]
-    pub unsafe fn apply_keystream_block(&mut self, block: InOut<'_, '_, [u8; 16]>) {
-        debug_assert!(supported());
-
+    pub unsafe fn apply_keystream_block(&mut self, block: InOut<'_, '_, Block>) {
         let (in_ptr, out_ptr) = block.into_raw();
         let data = unsafe { _mm_lddqu_si128(in_ptr.cast()) };
         let z = unsafe { self.keystream() };
@@ -88,9 +101,7 @@ impl State {
     /// The AES and AVX2 architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "avx2,aes")]
-    pub unsafe fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
-        debug_assert!(supported());
-
+    pub unsafe fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, Block>) {
         for block in blocks {
             unsafe { self.apply_keystream_block(block) }
         }
@@ -101,9 +112,7 @@ impl State {
     /// The AES and AVX2 architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "avx2,aes")]
-    pub unsafe fn write_keystream_block(&mut self, block: &mut [u8; 16]) {
-        debug_assert!(supported());
-
+    pub unsafe fn write_keystream_block(&mut self, block: &mut Block) {
         unsafe { _mm_storeu_si128(block.as_mut_ptr().cast(), self.keystream()) }
     }
 
@@ -112,9 +121,7 @@ impl State {
     /// The AES and AVX2 architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "avx2,aes")]
-    pub unsafe fn write_keystream_blocks(&mut self, block: &mut [[u8; 16]]) {
-        debug_assert!(supported());
-
+    pub unsafe fn write_keystream_blocks(&mut self, block: &mut [Block]) {
         for block in block {
             unsafe { self.write_keystream_block(block) }
         }

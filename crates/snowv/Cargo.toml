@@ -33,6 +33,7 @@ soft = []
 
 # Enable `std`.
 std = [
+	"ct-aes/std",
 	"inout/std",
 	"zeroize/std",
 ]
@@ -40,15 +41,18 @@ std = [
 # Enable `zeroize` support.
 zeroize = [
 	"dep:zeroize",
+
+	"ct-aes/zeroize",
 ]
 
 [dependencies]
 cfg-if = { workspace = true, default-features = false }
+ct-aes = { version = "0.1", default-features = false, features = ["snowv"] }
 inout = { workspace = true, default-features = false }
 zeroize = { workspace = true, default-features = false, optional = true }
 
 [target.'cfg(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "x86"))'.dependencies]
-cpufeatures = { version = "0.2", default-features = false }
+cpufeatures = { version = ">=0.2.15", default-features = false }
 
 [dev-dependencies]
 snowv = { path = "." }

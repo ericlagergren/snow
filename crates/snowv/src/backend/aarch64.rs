@@ -6,7 +6,6 @@
     target_feature = "neon",
 ))]
 #![allow(clippy::undocumented_unsafe_blocks, reason = "Too many unsafe blocks.")]
-#![allow(non_camel_case_types)]
 
 use core::arch::aarch64::{
     uint16x8_t, uint16x8x4_t, uint8x16_t, uint8x16x2_t, vaddq_u32, vaeseq_u8, vaesmcq_u8,
@@ -18,11 +17,27 @@ use core::arch::aarch64::{
 
 use inout::{InOut, InOutBuf};
 
+use crate::Block;
+
 // NB: `aes` implies `neon`.
 cpufeatures::new!(have_aes, "aes");
 
-pub fn supported() -> bool {
-    have_aes::get()
+#[derive(Copy, Clone, Debug)]
+pub(super) struct Token {
+    token: have_aes::InitToken,
+}
+
+impl Token {
+    #[inline]
+    pub fn new() -> (Self, bool) {
+        let (token, supported) = have_aes::init_get();
+        (Self { token }, supported)
+    }
+
+    #[inline]
+    pub fn supported(&self) -> bool {
+        self.token.get()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -58,8 +73,6 @@ impl State {
     #[inline]
     #[target_feature(enable = "neon,aes")]
     pub unsafe fn new(key: &[u8; 32], iv: &[u8; 16], aead: bool) -> Self {
-        debug_assert!(supported());
-
         let uint8x16x2_t(k0, k1) = unsafe { vld1q_u8_x2(key.as_ptr()) };
 
         let iv0 = unsafe { vld1q_u8(iv.as_ptr()) };
@@ -95,9 +108,7 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn apply_keystream_block(&mut self, block: InOut<'_, '_, [u8; 16]>) {
-        debug_assert!(supported());
-
+    pub unsafe fn apply_keystream_block(&mut self, block: InOut<'_, '_, Block>) {
         let (in_ptr, out_ptr) = block.into_raw();
         let src = unsafe { vld1q_u8(in_ptr.cast()) };
         let z = unsafe { self.keystream() };
@@ -109,9 +120,7 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, [u8; 16]>) {
-        debug_assert!(supported());
-
+    pub unsafe fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, Block>) {
         for block in blocks {
             unsafe { self.apply_keystream_block(block) }
         }
@@ -122,9 +131,7 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn write_keystream_block(&mut self, block: &mut [u8; 16]) {
-        debug_assert!(supported());
-
+    pub unsafe fn write_keystream_block(&mut self, block: &mut Block) {
         unsafe { vst1q_u8(block.as_mut_ptr(), self.keystream()) }
     }
 
@@ -133,9 +140,7 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn write_keystream_blocks(&mut self, block: &mut [[u8; 16]]) {
-        debug_assert!(supported());
-
+    pub unsafe fn write_keystream_blocks(&mut self, block: &mut [Block]) {
         for block in block {
             unsafe { self.write_keystream_block(block) }
         }

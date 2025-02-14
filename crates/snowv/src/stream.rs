@@ -16,6 +16,9 @@ pub const BLOCK_SIZE: usize = 16;
 /// The maximum number of blocks that can be encrypted.
 pub const MAX_BLOCKS: u64 = 1 << 60;
 
+/// A SNOW-V block.
+pub type Block = [u8; BLOCK_SIZE];
+
 /// An eror returned by [`SnowV`] when it's reached the end of
 /// its keystream.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -83,10 +86,7 @@ impl SnowV {
     /// XORs each byte in `block` with the corresponding byte in
     /// the keystream.
     #[inline]
-    pub fn apply_keystream_block(
-        &mut self,
-        block: InOut<'_, '_, [u8; BLOCK_SIZE]>,
-    ) -> Result<(), Error> {
+    pub fn apply_keystream_block(&mut self, block: InOut<'_, '_, Block>) -> Result<(), Error> {
         self.blocks = self.blocks.checked_sub(1).ok_or(Error)?;
         self.state.apply_keystream_block(block);
         Ok(())
@@ -95,10 +95,7 @@ impl SnowV {
     /// XORs each byte in `blocks` with the corresponding byte in
     /// the keystream.
     #[inline]
-    pub fn apply_keystream_blocks(
-        &mut self,
-        blocks: InOutBuf<'_, '_, [u8; BLOCK_SIZE]>,
-    ) -> Result<(), Error> {
+    pub fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, Block>) -> Result<(), Error> {
         let nblocks = u64::try_from(blocks.len()).map_err(|_| Error)?;
         self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;
         self.state.apply_keystream_blocks(blocks);
@@ -107,7 +104,7 @@ impl SnowV {
 
     /// Writes the next keystream block to `block`.
     #[inline]
-    pub fn write_keystream_block(&mut self, block: &mut [u8; BLOCK_SIZE]) -> Result<(), Error> {
+    pub fn write_keystream_block(&mut self, block: &mut Block) -> Result<(), Error> {
         self.blocks = self.blocks.checked_sub(1).ok_or(Error)?;
         self.state.write_keystream_block(block);
         Ok(())
@@ -115,7 +112,7 @@ impl SnowV {
 
     /// Writes the next keystream blocks to `blocks`.
     #[inline]
-    pub fn write_keystream_blocks(&mut self, blocks: &mut [[u8; BLOCK_SIZE]]) -> Result<(), Error> {
+    pub fn write_keystream_blocks(&mut self, blocks: &mut [Block]) -> Result<(), Error> {
         let nblocks = u64::try_from(blocks.len()).map_err(|_| Error)?;
         self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;
         self.state.write_keystream_blocks(blocks);
@@ -135,10 +132,7 @@ impl zeroize::ZeroizeOnDrop for SnowV {}
 #[inline(always)]
 fn as_blocks_mut<'inp, 'out>(
     data: InOutBuf<'inp, 'out, u8>,
-) -> (
-    InOutBuf<'inp, 'out, [u8; BLOCK_SIZE]>,
-    InOutBuf<'inp, 'out, u8>,
-) {
+) -> (InOutBuf<'inp, 'out, Block>, InOutBuf<'inp, 'out, u8>) {
     let chunks = data.len() / BLOCK_SIZE;
     // The size in bytes of `head`.
     //
