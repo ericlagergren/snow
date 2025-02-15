@@ -4,10 +4,12 @@
 
 use core::hint::black_box;
 
+#[cfg(feature = "rust-crypto")]
+use cipher::StreamCipherCore;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use snowv::{SnowV, BLOCK_SIZE};
 
-const SIZES: &[usize] = &[64, 256, 1024, 2028, 4096, 8192, 16384];
+const SIZES: &[usize] = &[64, 256, 1024, 2048, 4096, 8192, 16384];
 const BLOCKS: &[usize] = &[1, 2, 4, 8, 16, 32, 64];
 
 fn benchmarks(c: &mut Criterion) {
@@ -28,6 +30,21 @@ fn benchmarks(c: &mut Criterion) {
                 let cipher = SnowV::new(&[0; 32], &[0; 16]);
                 b.iter(|| {
                     let _ = cipher.clone().apply_keystream(data.as_mut_slice().into());
+                });
+                black_box(&data);
+            },
+        );
+
+        #[cfg(feature = "rust-crypto")]
+        g.throughput(Throughput::Bytes(size as u64)).bench_function(
+            BenchmarkId::new("try_apply_keystream_partial", size),
+            |b| {
+                let mut data = vec![0; size];
+                let cipher = SnowV::new(&[0; 32], &[0; 16]);
+                b.iter(|| {
+                    let _ = cipher
+                        .clone()
+                        .try_apply_keystream_partial(data.as_mut_slice().into());
                 });
                 black_box(&data);
             },

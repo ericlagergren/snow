@@ -27,6 +27,7 @@ alloc = [
 # Enable RustCrypto bindings.
 rust-crypto = [
 	"dep:aead",
+	"dep:cipher",
 ]
 
 soft = [
@@ -52,6 +53,7 @@ zeroize = [
 snowv = { version = "0.1", path = "../snowv", default-features = false }
 
 aead = { version = "0.5", default-features = false, optional = true }
+cipher = { workspace = true, default-features = false, optional = true }
 cfg-if = { workspace = true, default-features = false }
 inout = { workspace = true, default-features = false }
 polyhash = { version = "0.3", default-features = false }

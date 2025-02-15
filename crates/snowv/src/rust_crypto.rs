@@ -8,9 +8,9 @@
 use core::fmt;
 
 use cipher::{
-    typenum::{U1, U16},
-    AlgorithmName, Block, BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamCipherCore,
-    StreamCipherError, StreamClosure,
+    typenum::{U1, U16, U32},
+    AlgorithmName, Block, BlockSizeUser, Iv, IvSizeUser, Key, KeyIvInit, KeySizeUser,
+    ParBlocksSizeUser, StreamBackend, StreamCipherCore, StreamCipherError, StreamClosure,
 };
 use inout::{InOut, InOutBuf};
 
@@ -19,6 +19,21 @@ use crate::SnowV;
 impl AlgorithmName for SnowV {
     fn write_alg_name(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "SNOW-V")
+    }
+}
+
+impl KeySizeUser for SnowV {
+    type KeySize = U32;
+}
+
+impl IvSizeUser for SnowV {
+    type IvSize = U16;
+}
+
+impl KeyIvInit for SnowV {
+    #[inline]
+    fn new(key: &Key<Self>, iv: &Iv<Self>) -> Self {
+        Self::new(key.as_ref(), iv.as_ref())
     }
 }
 
@@ -34,12 +49,20 @@ impl StreamCipherCore for SnowV {
         f.call(&mut Backend { state: self });
     }
 
-    //#[inline]
+    #[inline]
     fn apply_keystream_block_inout(&mut self, block: InOut<'_, '_, Block<Self>>) {
-        let (in_ptr, out_ptr) = block.into_raw();
-        // SAFETY: `cipher::Block<Self>` and `crate::Block` have
-        // the same layout in memory.
-        let block = unsafe { InOut::from_raw(in_ptr.cast(), out_ptr.cast()) };
+        // The default impl essentially just calls
+        //     write_keystream_block(tmp);
+        //     block.xor_in2out(tmp);
+        // which is exactly the same thing as
+        // `self.apply_keystream_block`, but with extra steps and
+        // possibly worse performance.
+        let block = {
+            let (in_ptr, out_ptr) = block.into_raw();
+            // SAFETY: `cipher::Block<Self>` and `crate::Block`
+            // have the same layout in memory.
+            unsafe { InOut::from_raw(in_ptr.cast(), out_ptr.cast()) }
+        };
         let _ = self.apply_keystream_block(block);
     }
 
@@ -50,11 +73,19 @@ impl StreamCipherCore for SnowV {
 
     #[inline]
     fn apply_keystream_blocks_inout(&mut self, blocks: InOutBuf<'_, '_, Block<Self>>) {
+        // The default impl essentially just calls
+        //     write_keystream_blocks(tmp);
+        //     block.xor_in2out(tmp);
+        // which is exactly the same thing as
+        // `self.apply_keystream_block`, but with extra steps and
+        // possibly worse performance.
         let len = blocks.len();
-        let (in_ptr, out_ptr) = blocks.into_raw();
-        // SAFETY: `cipher::Block<Self>` and `crate::Block` have
-        // the same layout in memory.
-        let blocks = unsafe { InOutBuf::from_raw(in_ptr.cast(), out_ptr.cast(), len) };
+        let blocks = {
+            let (in_ptr, out_ptr) = blocks.into_raw();
+            // SAFETY: `cipher::Block<Self>` and `crate::Block`
+            // have the same layout in memory.
+            unsafe { InOutBuf::from_raw(in_ptr.cast(), out_ptr.cast(), len) }
+        };
         let _ = self.apply_keystream_blocks(blocks);
     }
 
@@ -63,6 +94,7 @@ impl StreamCipherCore for SnowV {
         self,
         buf: InOutBuf<'_, '_, u8>,
     ) -> Result<(), StreamCipherError> {
+        // This is up to ~2% faster than the default impl.
         self.apply_keystream(buf).map_err(|_| StreamCipherError)
     }
 }
@@ -90,4 +122,6 @@ impl StreamBackend for Backend<'_> {
     fn gen_ks_block(&mut self, block: &mut Block<Self>) {
         let _ = self.state.write_keystream_block(block.as_mut());
     }
+
+    // We have a stride of 1, so the default impls are fine.
 }

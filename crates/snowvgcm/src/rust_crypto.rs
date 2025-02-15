@@ -5,57 +5,54 @@
 #![cfg(feature = "rust-crypto")]
 #![cfg_attr(docsrs, doc(cfg(feature = "rust-crypto")))]
 
+use core::fmt;
+
 use aead::{
     generic_array::typenum::{U16, U32},
-    AeadCore, AeadInPlace,
+    AeadCore, AeadInPlace, Key, KeyInit, KeySizeUser,
 };
+use cipher::AlgorithmName;
 
-use crate::{Error, SnowVGcm};
+use crate::SnowVGcm;
 
-/// The size in bytes of a SNOW-V-GCM key.
-pub type KeySize = U32;
+impl AlgorithmName for SnowVGcm {
+    fn write_alg_name(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SNOW-V-GCM")
+    }
+}
 
-/// The size in bytes of a SNOW-V-GCM nonce.
-pub type NonceSize = U16;
+impl KeySizeUser for SnowVGcm {
+    type KeySize = U32;
+}
 
-/// The size in bytes of a SNOW-V-GCM authentication tag.
-pub type TagSize = U16;
-
-impl From<Error> for aead::Error {
+impl KeyInit for SnowVGcm {
     #[inline]
-    fn from(_err: Error) -> Self {
-        aead::Error
+    fn new(key: &Key<Self>) -> Self {
+        Self::new(key.as_ref())
     }
 }
 
 impl AeadCore for SnowVGcm {
-    type NonceSize = NonceSize;
-    type TagSize = TagSize;
-    type CiphertextOverhead = TagSize;
+    type NonceSize = U16;
+    type TagSize = U16;
+    type CiphertextOverhead = U16;
 }
 
 impl AeadInPlace for SnowVGcm {
     #[inline]
-    #[allow(
-        clippy::unwrap_used,
-        reason = "The compiler can prove that `try_into` always succeeds"
-    )]
     fn encrypt_in_place_detached(
         &self,
         nonce: &aead::Nonce<Self>,
         associated_data: &[u8],
         buffer: &mut [u8],
     ) -> aead::Result<aead::Tag<Self>> {
-        let nonce = nonce.as_slice().try_into().unwrap();
-        let tag = self.seal(nonce, buffer.into(), associated_data)?;
+        let tag = self
+            .seal(nonce.as_ref(), buffer.into(), associated_data)
+            .map_err(|_| aead::Error)?;
         Ok(tag.into())
     }
 
     #[inline]
-    #[allow(
-        clippy::unwrap_used,
-        reason = "The compiler can prove that `try_into` always succeeds"
-    )]
     fn decrypt_in_place_detached(
         &self,
         nonce: &aead::Nonce<Self>,
@@ -63,9 +60,7 @@ impl AeadInPlace for SnowVGcm {
         buffer: &mut [u8],
         tag: &aead::Tag<Self>,
     ) -> aead::Result<()> {
-        let nonce = nonce.as_slice().try_into().unwrap();
-        let tag = tag.as_slice().try_into().unwrap();
-        self.open(nonce, buffer.into(), tag, associated_data)
-            .map_err(Into::into)
+        self.open(nonce.as_ref(), buffer.into(), tag.as_ref(), associated_data)
+            .map_err(|_| aead::Error)
     }
 }
