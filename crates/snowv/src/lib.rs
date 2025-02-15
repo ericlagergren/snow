@@ -6,6 +6,7 @@
 #![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
 
 mod backend;
+pub mod rust_crypto;
 mod stream;
 
 pub use stream::*;

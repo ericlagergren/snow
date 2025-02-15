@@ -25,7 +25,13 @@ default = [
 #
 # Currently unused.
 alloc = [
+	"cipher?/alloc",
 	"zeroize/alloc",
+]
+
+# Enable RustCrypto bindings.
+rust-crypto = [
+	"dep:cipher",
 ]
 
 # Force the software implementation.
@@ -33,6 +39,7 @@ soft = []
 
 # Enable `std`.
 std = [
+	"cipher?/std",
 	"ct-aes/std",
 	"inout/std",
 	"zeroize/std",
@@ -42,10 +49,12 @@ std = [
 zeroize = [
 	"dep:zeroize",
 
+	"cipher?/zeroize",
 	"ct-aes/zeroize",
 ]
 
 [dependencies]
+cipher = { version = "0.4", default-features = false, optional = true }
 cfg-if = { workspace = true, default-features = false }
 ct-aes = { version = "0.1", default-features = false, features = ["snowv"] }
 inout = { workspace = true, default-features = false }

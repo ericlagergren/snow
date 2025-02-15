@@ -60,6 +60,12 @@ impl SnowV {
         }
     }
 
+    /// Returns the number of remaining blocks.
+    #[inline]
+    pub fn remaining_blocks(&self) -> u64 {
+        self.blocks
+    }
+
     /// XORs each byte in the remainder of the keystream with the
     /// corresponding byte in `data`.
     #[inline]
