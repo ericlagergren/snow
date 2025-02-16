@@ -62,6 +62,12 @@ const P_MAX: u64 = u64::MAX / 8;
 const C_MAX: u64 = u64::MAX / 8;
 const A_MAX: u64 = u64::MAX / 8;
 
+/// A SNOW-V-GCM key.
+pub type Key = [u8; KEY_SIZE];
+
+/// A SNOW-V-GCM nonce.
+pub type Nonce = [u8; NONCE_SIZE];
+
 /// A SNOW-V-GCM authentication tag.
 pub type Tag = [u8; TAG_SIZE];
 
@@ -83,7 +89,7 @@ impl SnowVGcm {
     #[inline]
     pub fn seal(
         &self,
-        nonce: &[u8; NONCE_SIZE],
+        nonce: &Nonce,
         mut data: InOutBuf<'_, '_, u8>,
         additional_data: &[u8],
     ) -> Result<Tag, Error> {
@@ -96,8 +102,20 @@ impl SnowVGcm {
         let mut ghash_key = Zeroizing::new([0; 16]); // aka H
         cipher.write_keystream_block(&mut ghash_key)?;
 
+        #[cfg(test)]
+        {
+            println!(" want: [a5, 78, c7, e6, c9, dd, e7, 7f, af, b7, ae, 37, fa, 56, 95, 4a]");
+            println!("ghash: {:x?}", ghash_key);
+        }
+
         let mut mask = Zeroizing::new([0; 16]); // aka endPad
         cipher.write_keystream_block(&mut mask)?;
+
+        #[cfg(test)]
+        {
+            println!("want: [fc, 7c, ac, 57, 4c, 49, fe, ae, 61, 50, 31, 5b, 96, 85, 42, 4c]");
+            println!("mask: {:x?}", mask);
+        }
 
         cipher.apply_keystream(data.reborrow())?;
 
@@ -111,7 +129,7 @@ impl SnowVGcm {
     #[inline]
     pub fn open(
         &self,
-        nonce: &[u8; NONCE_SIZE],
+        nonce: &Nonce,
         data: InOutBuf<'_, '_, u8>,
         tag: &Tag,
         additional_data: &[u8],
@@ -179,6 +197,12 @@ fn less_or_equal(x: usize, y: u64) -> bool {
 mod tests {
     use super::*;
 
+    macro_rules! hex {
+        ($($s:literal)*) => {
+            &hex_literal::hex!($($s)*)
+        };
+    }
+
     #[test]
     fn test_round_trip() {
         const PLAINTEXT: &[u8] = b"hello, world!";
@@ -196,67 +220,116 @@ mod tests {
     #[test]
     fn test_vectors() {
         type Test<'a> = (
-            &'a [u8; KEY_SIZE],   // key
-            &'a [u8; NONCE_SIZE], // nonce
-            &'a [u8],             // ad
-            &'a [u8],             // pt
-            &'a [u8],             // ct
-            &'a [u8; 16],         // tag
+            &'a Key,   // key
+            &'a Nonce, // nonce
+            &'a [u8],  // ad
+            &'a [u8],  // pt
+            &'a [u8],  // ct
+            &'a Tag,   // tag
         );
         const TESTS: &[Test<'_>] = &[
             (
-                &[0; KEY_SIZE],
-                &[0; NONCE_SIZE],
+                hex!(
+                    "00000000000000000000000000000000"
+                    "00000000000000000000000000000000"
+                ),
+                hex!("00000000000000000000000000000000"),
                 &[],
                 &[],
                 &[],
-                &[
-                    0x02, 0x9a, 0x62, 0x4c, 0xda, 0xa4, 0xd4, 0x6c, 0xb9, 0xa0, 0xef, 0x40, 0x46,
-                    0x95, 0x6c, 0x9f,
-                ],
+                hex!("029a624cdaa4d46cb9a0ef4046956c9f"),
             ),
             (
-                &[
-                    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c,
-                    0x5d, 0x5e, 0x5f, 0x0a, 0x1a, 0x2a, 0x3a, 0x4a, 0x5a, 0x6a, 0x7a, 0x8a, 0x9a,
-                    0xaa, 0xba, 0xca, 0xda, 0xea, 0xfa,
-                ],
-                &[
-                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76,
-                    0x54, 0x32, 0x10,
-                ],
+                hex!(
+                    "505152535455565758595a5b5c5d5e5f"
+                    "0a1a2a3a4a5a6a7a8a9aaabacadaeafa"
+                ),
+                hex!("0123456789abcdeffedcba9876543210"),
                 &[],
                 &[],
                 &[],
-                &[
-                    0xfc, 0x7c, 0xac, 0x57, 0x4c, 0x49, 0xfe, 0xae, 0x61, 0x50, 0x31, 0x5b, 0x96,
-                    0x85, 0x42, 0x4c,
-                ],
+                hex!("fc7cac574c49feae6150315b9685424c"),
             ),
             (
-                &[0; KEY_SIZE],
-                &[0; NONCE_SIZE],
-                &[
-                    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x63,
-                    0x64, 0x65, 0x66,
-                ],
+                hex!(
+                    "00000000000000000000000000000000"
+                    "00000000000000000000000000000000"
+                ),
+                hex!("00000000000000000000000000000000"),
+                hex!("30313233343536373839616263646566"),
                 &[],
                 &[],
-                &[
-                    0x5a, 0x5a, 0xa5, 0xfb, 0xd6, 0x35, 0xef, 0x1a, 0xe1, 0x29, 0x61, 0x42, 0x03,
-                    0xe1, 0x03, 0x84,
-                ],
+                hex!("5a5aa5fbd635ef1ae129614203e10384"),
+            ),
+            (
+                hex!(
+                    "505152535455565758595a5b5c5d5e5f"
+                    "0a1a2a3a4a5a6a7a8a9aaabacadaeafa"
+                ),
+                hex!("0123456789abcdeffedcba9876543210"),
+                hex!("30313233343536373839616263646566"),
+                &[],
+                &[],
+                hex!("250ec8d77a022c087adf08b65adcbb1a"),
+            ),
+            (
+                hex!(
+                    "505152535455565758595a5b5c5d5e5f"
+                    "0a1a2a3a4a5a6a7a8a9aaabacadaeafa"
+                ),
+                hex!("0123456789abcdeffedcba9876543210"),
+                &[],
+                hex!("30313233343536373839"),
+                hex!("dd7e01b2b424a2ef8250"),
+                hex!("ddfe4e31e7bfe6902331ec5ce319d90d"),
+            ),
+            (
+                hex!(
+                    "505152535455565758595a5b5c5d5e5f"
+                    "0a1a2a3a4a5a6a7a8a9aaabacadaeafa"
+                ),
+                hex!("0123456789abcdeffedcba9876543210"),
+                hex!("41414420746573742076616c756521"),
+                hex!(
+                    "30313233343536373839616263646566"
+                    "20536e6f77562d41454144206d6f6465"
+                    "21"
+                ),
+                hex!(
+                    "dd7e01b2b424a2ef82502707e87a32c1"
+                    "52b0d01818fd7f12243eb5a15659e91b"
+                    "4c"
+                ),
+                hex!("907ea6a5b73a51de747c3e9ad9ee029b"),
             ),
         ];
         for (i, &(key, nonce, ad, pt, ct, tag)) in TESTS.iter().enumerate() {
-            let aead = SnowVGcm::new(key);
             let mut data = pt.to_vec();
+            println!("data = {:x?}", data);
+
+            let aead = SnowVGcm::new(key);
             let got_tag = aead.seal(nonce, data.as_mut_slice().into(), ad).unwrap();
-            assert_eq!(&got_tag, tag, "#{i}");
-            assert_eq!(data, ct, "#{i}");
+            println!("ct: {:x?}", data);
+            assert_eq!(&got_tag, tag, "#{i}: incorrect tag");
+            assert_eq!(data, ct, "#{i}: incorrect ciphertext");
             aead.open(nonce, data.as_mut_slice().into(), tag, ad)
                 .unwrap();
-            assert_eq!(data, pt, "#{i}");
+            assert_eq!(data, pt, "#{i}: incorrect plaintext");
+
+            #[cfg(feature = "rust-crypto")]
+            {
+                use aead::{AeadInPlace, KeyInit};
+
+                let aead = <SnowVGcm as KeyInit>::new(key.into());
+                let got_tag = aead
+                    .encrypt_in_place_detached(nonce.into(), ad, &mut data)
+                    .unwrap();
+                assert_eq!(got_tag.as_slice(), tag, "#{i}: incorrect tag");
+                assert_eq!(data, ct, "#{i}: incorrect ciphertext");
+                aead.decrypt_in_place_detached(nonce.into(), ad, data.as_mut_slice(), tag.into())
+                    .unwrap();
+                assert_eq!(data, pt, "#{i}: incorrect plaintext");
+            }
         }
     }
 }

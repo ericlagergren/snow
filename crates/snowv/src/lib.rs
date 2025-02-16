@@ -31,6 +31,12 @@ pub const BLOCK_SIZE: usize = 16;
 /// and assumes bytes. This limit may be increased in the future.
 pub const MAX_BLOCKS: u64 = 1 << 60;
 
+/// A SNOW-V-GCM key.
+pub type Key = [u8; KEY_SIZE];
+
+/// A SNOW-V-GCM IV.
+pub type Iv = [u8; IV_SIZE];
+
 /// A SNOW-V block.
 pub type Block = [u8; BLOCK_SIZE];
 
@@ -58,7 +64,7 @@ pub struct SnowV {
 impl SnowV {
     /// Creates an instance of the SNOW-V stream cipher.
     #[inline]
-    pub fn new(key: &[u8; KEY_SIZE], iv: &[u8; IV_SIZE]) -> Self {
+    pub fn new(key: &Key, iv: &Iv) -> Self {
         Self {
             state: State::new(key, iv, false),
             blocks: MAX_BLOCKS,
@@ -68,7 +74,7 @@ impl SnowV {
     /// Creates an instance of the SNOW-V stream cipher for use
     /// with SNOW-V-GCM.
     #[inline]
-    pub fn new_for_aead(key: &[u8; KEY_SIZE], iv: &[u8; IV_SIZE]) -> Self {
+    pub fn new_for_aead(key: &Key, iv: &Iv) -> Self {
         Self {
             state: State::new(key, iv, true),
             blocks: MAX_BLOCKS,
@@ -93,7 +99,7 @@ impl SnowV {
         let (blocks, mut tail) = as_blocks_mut(data);
         self.state.apply_keystream_blocks(blocks);
         if !tail.is_empty() {
-            let mut block = [0; BLOCK_SIZE];
+            let mut block = Block::default();
             self.state.write_keystream_block(&mut block);
             #[allow(
                 clippy::indexing_slicing,

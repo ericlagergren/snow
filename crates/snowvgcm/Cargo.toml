@@ -1,5 +1,5 @@
 [package]
-name = "snowvgcm"
+name = "snowv-gcm"
 version = "0.1.0"
 description = """
 The SNOW-V-GCM AEAD construction.
@@ -61,6 +61,9 @@ subtle = { version = "2.6", default-features = false, features = ["core_hint_bla
 zeroize = { workspace = true, default-features = false, optional = true }
 
 [dev-dependencies]
+snowv-gcm = { path = ".", features = ["rust-crypto"]}
+
+hex-literal = { version = "0.4" }
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
