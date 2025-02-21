@@ -1,0 +1,77 @@
+[package]
+name = "snowv"
+version = "0.1.0"
+description = """
+The SNOW-V stream cipher
+"""
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+documentation = "https://docs.rs/snowv"
+keywords = [ "snowv", "snow", "snow-v", "snow5" ]
+categories = [ "cryptography", "no-std", "no-std::no-alloc" ]
+
+[lints]
+workspace = true
+
+[features]
+default = [
+	"zeroize",
+]
+
+# Enable `alloc`.
+#
+# Currently unused.
+alloc = [
+	"cipher?/alloc",
+	"zeroize/alloc",
+]
+
+# Enable RustCrypto bindings.
+rust-crypto = [
+	"dep:cipher",
+]
+
+# Force the software implementation.
+soft = []
+
+# Enable `std`.
+std = [
+	"cipher?/std",
+	"ct-aes/std",
+	"inout/std",
+	"zeroize/std",
+]
+
+# Enable `zeroize` support.
+zeroize = [
+	"dep:zeroize",
+
+	"cipher?/zeroize",
+	"ct-aes/zeroize",
+]
+
+[dependencies]
+cipher = { workspace = true, default-features = false, optional = true }
+cfg-if = { workspace = true, default-features = false }
+ct-aes = { version = "0.1", default-features = false, features = ["snowv"] }
+inout = { workspace = true, default-features = false }
+zeroize = { workspace = true, default-features = false, optional = true }
+
+[target.'cfg(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "x86"))'.dependencies]
+cpufeatures = { version = ">=0.2.15", default-features = false }
+
+[dev-dependencies]
+snowv = { path = "." }
+
+criterion = { version = "0.5" }
+rand = { version = "0.8", features = ["std_rng"] }
+
+[[bench]]
+name = "lib"
+harness = false
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
