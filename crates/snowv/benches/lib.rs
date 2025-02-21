@@ -10,7 +10,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use snowv::{SnowV, BLOCK_SIZE};
 
 const SIZES: &[usize] = &[64, 256, 1024, 2048, 4096, 8192, 16384];
-const BLOCKS: &[usize] = &[1, 2, 4, 8, 16, 32, 64];
+const BLOCKS: &[usize] = &[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
 
 fn benchmarks(c: &mut Criterion) {
     let mut g = c.benchmark_group("SNOW-V");
