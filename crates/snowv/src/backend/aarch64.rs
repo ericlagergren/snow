@@ -140,8 +140,8 @@ impl State {
     /// The NEON and AES architectural features must be enabled.
     #[inline]
     #[target_feature(enable = "neon,aes")]
-    pub unsafe fn write_keystream_blocks(&mut self, block: &mut [Block]) {
-        for block in block {
+    pub unsafe fn write_keystream_blocks(&mut self, blocks: &mut [Block]) {
+        for block in blocks {
             unsafe { self.write_keystream_block(block) }
         }
     }

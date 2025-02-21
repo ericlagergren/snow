@@ -24,12 +24,10 @@ pub const IV_SIZE: usize = 16;
 pub const BLOCK_SIZE: usize = 16;
 
 /// The maximum number of blocks that can be encrypted.
-///
-/// The paper states that the maximum length of a keystream is
-/// 2⁶⁴, but it does not specify whether that is blocks or bytes.
-/// As such, this constant takes the more conservative approach
-/// and assumes bytes. This limit may be increased in the future.
-pub const MAX_BLOCKS: u64 = 1 << 60;
+// NB: The paper states that the maximum length of a keystream is
+// 2⁶⁴, but it does not specify the units. The authors confirmed
+// via e-mail that the units are bits.
+pub const MAX_BLOCKS: u64 = 1 << 57;
 
 /// A SNOW-V-GCM key.
 pub type Key = [u8; KEY_SIZE];
@@ -121,7 +119,7 @@ impl SnowV {
 
     /// XORs each byte in `blocks` with the corresponding byte in
     /// the keystream.
-    #[inline]
+    //#[inline]
     pub fn apply_keystream_blocks(&mut self, blocks: InOutBuf<'_, '_, Block>) -> Result<(), Error> {
         let nblocks = u64::try_from(blocks.len()).map_err(|_| Error)?;
         self.blocks = self.blocks.checked_sub(nblocks).ok_or(Error)?;

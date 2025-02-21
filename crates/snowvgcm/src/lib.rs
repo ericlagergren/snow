@@ -57,10 +57,14 @@ pub const NONCE_SIZE: usize = 16;
 /// The size in bytes of a SNOW-V-GCM authentication tag.
 pub const TAG_SIZE: usize = 16;
 
-// Because we need to convert bytes to bits.
-const P_MAX: u64 = u64::MAX / 8;
-const C_MAX: u64 = u64::MAX / 8;
-const A_MAX: u64 = u64::MAX / 8;
+/// The maximum allowed size in bytes of a plaintext.
+pub const P_MAX: u64 = (snowv::MAX_BLOCKS * snowv::BLOCK_SIZE as u64) / 8;
+
+/// The maximum allowed size in bytes of a ciphertext.
+pub const C_MAX: u64 = P_MAX + TAG_SIZE as u64;
+
+/// The maximum allowed size in bytes of additional data.
+pub const A_MAX: u64 = u64::MAX / 8;
 
 /// A SNOW-V-GCM key.
 pub type Key = [u8; KEY_SIZE];
@@ -80,12 +84,13 @@ pub struct SnowVGcm {
 impl SnowVGcm {
     /// Creates an instance of SNOW-V-GCM.
     #[inline]
-    pub fn new(key: &[u8; KEY_SIZE]) -> Self {
+    pub fn new(key: &Key) -> Self {
         Self { key: *key }
     }
 
     /// Encrypts and authenticates `data`, authenticates
-    /// `additional_data`, and writes the result to `data`.
+    /// `additional_data`, and writes the ciphertext result to
+    /// `data`.
     #[inline]
     pub fn seal(
         &self,
@@ -102,20 +107,8 @@ impl SnowVGcm {
         let mut ghash_key = Zeroizing::new([0; 16]); // aka H
         cipher.write_keystream_block(&mut ghash_key)?;
 
-        #[cfg(test)]
-        {
-            println!(" want: [a5, 78, c7, e6, c9, dd, e7, 7f, af, b7, ae, 37, fa, 56, 95, 4a]");
-            println!("ghash: {:x?}", ghash_key);
-        }
-
         let mut mask = Zeroizing::new([0; 16]); // aka endPad
         cipher.write_keystream_block(&mut mask)?;
-
-        #[cfg(test)]
-        {
-            println!("want: [fc, 7c, ac, 57, 4c, 49, fe, ae, 61, 50, 31, 5b, 96, 85, 42, 4c]");
-            println!("mask: {:x?}", mask);
-        }
 
         cipher.apply_keystream(data.reborrow())?;
 
@@ -125,7 +118,8 @@ impl SnowVGcm {
     }
 
     /// Decrypts and authenticates `data`, authenticates
-    /// `additional_data`, and writes the result to `data`.
+    /// `additional_data`, and writes the plaintext result to
+    /// `data`.
     #[inline]
     pub fn open(
         &self,
@@ -305,11 +299,9 @@ mod tests {
         ];
         for (i, &(key, nonce, ad, pt, ct, tag)) in TESTS.iter().enumerate() {
             let mut data = pt.to_vec();
-            println!("data = {:x?}", data);
 
             let aead = SnowVGcm::new(key);
             let got_tag = aead.seal(nonce, data.as_mut_slice().into(), ad).unwrap();
-            println!("ct: {:x?}", data);
             assert_eq!(&got_tag, tag, "#{i}: incorrect tag");
             assert_eq!(data, ct, "#{i}: incorrect ciphertext");
             aead.open(nonce, data.as_mut_slice().into(), tag, ad)
